@@ -6,12 +6,13 @@
 #include "mica/transaction/stats.h"
 #include "mica/transaction/row.h"
 #include "mica/transaction/table.h"
+#include "mica/transaction/commit_slot.h"
 #include "mica/transaction/db.h"
 #include "mica/transaction/row_version_pool.h"
 #include "mica/util/memcpy.h"
 #include "mica/util/rand.h"
 #include "mica/util/latency.h"
-#include "mica/transaction/commit_slot.h"
+//#include "mica/transaction/commit_slot.h"
 // #include "mica/util/queue.h"
 
 namespace mica {
@@ -37,7 +38,7 @@ class Context {
         thread_id_(thread_id),
         numa_id_(numa_id),
         backoff_rand_(static_cast<uint64_t>(thread_id)),
-        timing_stack_(&stats_, db_->sw())
+        timing_stack_(&stats_, db_->sw()),
         current_slot_idx_(0),  // 新增
         local_seq_(0){  // 新增
     if (StaticConfig::kPairwiseSleeping) {
