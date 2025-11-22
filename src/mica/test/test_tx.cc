@@ -128,7 +128,7 @@ void worker_proc(Task* task) {
   auto hash_idx = task->hash_idx;
   auto btree_idx = task->btree_idx;
 
-  __sync_add_and_fetch(&running_threads, 1);
+  __sync_add_and_fetch(&running_threads, 1); //原子操作1
   while (running_threads < task->num_threads) ::mica::util::pause();
 
   Timing t(ctx->timing_stack(), &::mica::transaction::Stats::worker);
@@ -140,8 +140,8 @@ void worker_proc(Task* task) {
   uint64_t commit_i = 0;
   uint64_t scanned = 0;
 
-  task->db->activate(static_cast<uint16_t>(task->thread_id));
-  while (task->db->active_thread_count() < task->num_threads) {
+  task->db->activate(static_cast<uint16_t>(task->thread_id)); //原子操作2
+  while (task->db->active_thread_count() < task->num_threads) { //如果当前活跃线程数小于总线程数，说明有其他线程还没ready，这个线程需要等待
     ::mica::util::pause();
     task->db->idle(static_cast<uint16_t>(task->thread_id));
   }
@@ -149,6 +149,17 @@ void worker_proc(Task* task) {
   if (kVerbose) printf("lcore %" PRIu64 "\n", task->thread_id);
 
   Transaction tx(ctx);
+  '''
+  ctx 是每个线程自己的事务上下文环境，里面保存了：
+
+  线程本地时间戳（rts, wts）；
+
+  本地访问记录（accesses）；
+
+  线程ID、NUMA节点信息；
+
+  指向数据库对象的指针等。
+  '''
 
   while (next_tx_i < task->tx_count && !stopping) {
     uint64_t tx_i;
@@ -186,7 +197,7 @@ void worker_proc(Task* task) {
                                  (void)k;
                                  row_id = v;
                                  return false;
-                               });
+                               }); //hash桶遍历
           if (lookup_result != 1 || lookup_result == HashIndex::kHaveToAbort) {
             assert(false);
             tx.abort();
@@ -200,7 +211,7 @@ void worker_proc(Task* task) {
                                   (void)k;
                                   row_id = v;
                                   return false;
-                                });
+                                });// B+tree查找
           if (lookup_result != 1 || lookup_result == BTreeIndex::kHaveToAbort) {
             assert(false);
             tx.abort();
@@ -228,7 +239,7 @@ void worker_proc(Task* task) {
           } else {
             if (is_rmw) {
               if (!rah.peek_row(tbl, 0, row_id, false, true, true) ||
-                  !rah.read_row() || !rah.write_row(kDataSize)) {
+                  !rah.read_row() || !rah.write_row(kDataSize)) { //rah 指向事务的accesses_数组里的一项，描述了当前事务访问的一行的元数据
                 tx.abort();
                 aborted = true;
                 break;

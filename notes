@@ -1,0 +1,75 @@
+修改数据事务流程：
+step1: test_tx.cc main() line 486 worker_proc line 272 workload载入
+
+uint64_t next_row_id = row_id;
+uint64_t next_next_raw_row_id = task->row_ids[req_i + req_j] + 1;
+if (next_next_raw_row_id == task->num_rows)
+  next_next_raw_row_id = 0;
+
+std::mt19937 g(thread_id);
+std::vector<uint64_t> row_ids;
+row_ids.reserve((num_rows + init_num_threads - 1) / init_num_threads);
+for (uint64_t i = thread_id; i < num_rows; i += init_num_threads)
+  row_ids.push_back(i);
+std::shuffle(row_ids.begin(), row_ids.end(), g);
+
+step2: test_tx.cc worker_proc line 184 look up for the data
+
+auto lookup_result =
+hash_idx->lookup(&tx, row_id, kSkipValidationForIndexAccess,
+                 [&row_id](auto& k, auto& v) {
+                   (void)k;
+                   row_id = v;
+                   return false;
+                 });
+
+step3: test_tx.cc worker_proc line 230
+
+if (is_rmw) {
+    if (!rah.peek_row(tbl, 0, row_id, false, true, true) ||
+        !rah.read_row() || !rah.write_row(kDataSize)) {
+      tx.abort();
+      aborted = true;
+      break;
+    }
+  }
+
+  and operation.h line 399 write the write set
+
+  bool Transaction<StaticConfig>::write_row(RAH& rah, uint64_t data_size,
+    const DataCopier& data_copier) 
+
+step4: test_tx.cc line 349
+
+Result result;
+if (!tx.commit(&result)) continue;
+assert(result == Result::kCommitted);
+
+commit.h line 220
+
+bool Transaction<StaticConfig>::commit(Result* detail,
+    const WriteFunc& write_func)
+
+    and core func is operation.h line 595
+
+    bool Transaction<StaticConfig>::insert_version_deferred()
+
+
+    步骤 | 函数调用 | 原子操作 | 出现位置 | 单次事务出现次数（估计）
+    ① | Transaction::begin() | 无原子操作 | — | 0
+    ② | RowAccessHandle::peek_row() → Transaction::peek_row() → Transaction::locate() | atomic load（读取 row version 的wts, rts） | rv->wts，rv->rts | 每访问一行1~3次
+    ③ | Transaction::write_row()（第一次调用） | atomic fetch/add（申请新RowVersion时，从版本池中递增分配） | pool->allocate(size_cls) | 1次（写请求时出现）
+    ④ | Transaction::write_row()（分配新版本后） | atomic store（将新RowVersion的状态设置为 Pending） | write_rv->status = Pending | 1次
+    ⑤ | 数据区写入（手动memcpy或修改） | 无原子操作 | — | 0
+    ⑥ | Transaction::commit() | 调用多个内部子函数（下列详细展开） |  | 
+    ⑦ | Transaction::sort_wset() | atomic load（读取每个写入Row的 wts 时间戳进行排序） | wts[i] = item->head->older_rv->wts | 1次/写请求
+    ⑧ | Transaction::validate() | atomic load（读rts进行验证） | rv->rts.get() | 1次/写请求
+    ⑨ | Transaction::insert_version_deferred() | CAS操作：__sync_bool_compare_and_swap（将新版本插入版本链） | CAS on older_rv pointer | 每个写操作1~3次尝试（失败会retry）
+    ⑩ | Transaction::write() | atomic store（把写入RowVersion标记为 Committed状态） | write_rv->status = Committed | 1次/行
+    ⑪ | Transaction::schedule_gc() | atomic fetch/add（垃圾回收队列加入新版本） | ctx_->schedule_gc(...) | 1次/写
+    ⑫ | pthread_spin_unlock（在事务结束阶段释放全局锁） | lock xchg（硬件原子指令） | POSIX spinlock机制 | 1次
+        task->db->deactivate(static_cast<uint16_t>(task->thread_id)) pasue 进程数减一 2次
+
+        总计15次原子操作
+
+    

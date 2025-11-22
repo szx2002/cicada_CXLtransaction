@@ -11,6 +11,7 @@
 #include "mica/util/memcpy.h"
 #include "mica/util/rand.h"
 #include "mica/util/latency.h"
+#include "mica/transaction/commit_slot.h"
 // #include "mica/util/queue.h"
 
 namespace mica {
@@ -217,7 +218,7 @@ class Context {
 
     if (StaticConfig::kInlinedRowVersion && tbl->inlining(cf_id) &&
         size_cls <= tbl->inlined_rv_size_cls(cf_id)) {
-      if (!StaticConfig::kInlineWithAltRow && NewRow) {
+      if (!StaticConfig::kInlineWithAltRow && NewRow) {// 新插入的行直接写入inlined版本
         assert(head->inlined_rv->status == RowVersionStatus::kInvalid);
         assert(head->inlined_rv->is_inlined());
         // NewRow is guaranteed to have an inlined version available if
@@ -227,12 +228,12 @@ class Context {
       } else if (head->inlined_rv->status == RowVersionStatus::kInvalid &&
                  __sync_bool_compare_and_swap(&head->inlined_rv->status,
                                               RowVersionStatus::kInvalid,
-                                              RowVersionStatus::kPending)) {
+                                              RowVersionStatus::kPending)) { //不是新行，但是inlined 为空 试图CAS抢占
         // Acquire an inlined version by contesting it.
         assert(head->inlined_rv->is_inlined());
         head->inlined_rv->data_size = static_cast<uint32_t>(data_size);
         return head->inlined_rv;
-      } else if (StaticConfig::kInlineWithAltRow) {
+      } else if (StaticConfig::kInlineWithAltRow) { //如果启用了AltRow机制，在主head.inlined_rv抢占失败后，尝试在alt_head上抢占inline slot
         auto alt_head = tbl->alt_head(cf_id, row_id);
         if (alt_head->inlined_rv->status == RowVersionStatus::kInvalid &&
             __sync_bool_compare_and_swap(&alt_head->inlined_rv->status,
@@ -246,6 +247,7 @@ class Context {
       }
     }
 
+    //内容过大或者以上全部失败 退回外部分配
     auto pool = db_->row_version_pool(thread_id_);
     auto rv = pool->allocate(size_cls);
     rv->data_size = static_cast<uint32_t>(data_size);

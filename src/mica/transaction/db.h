@@ -132,6 +132,17 @@ struct BasicDBConfig {
   // Collect internal processing statistics (a bit slow).
   static constexpr bool kCollectProcessingStats = false;
 
+  //新增:Slot机制相关配置
+  // 每个线程维护的slot数量上限 暂定256
+  static constexpr size_t kMaxSlots = 256;
+
+  // 是否启用slot原子提交机制
+  static constexpr bool kEnableSlotCommit = true;
+
+  // 是否启用BW-tree索引(暂时设为false,后续实现)
+  static constexpr bool kEnableBWTree = false;
+  //新增结束
+
   // Use ActiveTiming for fine-grained tracking (slow) and DummyTiming to omit
   // it.
   // typedef ::mica::transaction::ActiveTiming Timing;
@@ -225,13 +236,25 @@ class DB {
   void deactivate(uint16_t thread_id);
   void reset_clock(uint16_t thread_id);
   void idle(uint16_t thread_id);
-
+/*
   Context<StaticConfig>* context(uint16_t thread_id) {
     return ctxs_[thread_id];
   }
   const Context<StaticConfig>* context(uint16_t thread_id) const {
     return ctxs_[thread_id];
   }
+*/
+  //新增：id越界判断
+  Context<StaticConfig>* context(uint16_t thread_id) {
+    assert(thread_id < num_threads_);
+    return ctxs_[thread_id];
+  }
+
+  const Context<StaticConfig>* context(uint16_t thread_id) const {
+    assert(thread_id < num_threads_);
+    return ctxs_[thread_id];
+  }
+  //新增结束
 
   bool create_table(std::string name, uint16_t cf_count,
                     const uint64_t* data_size_hints);
@@ -292,6 +315,23 @@ class DB {
 
   Timestamp min_wts() const { return min_wts_.get(); }
   Timestamp min_rts() const { return min_rts_.get(); }
+
+  //新增：遍历所有活跃线程,返回最小的活跃事务时间戳
+  Timestamp min_active_snapshot_ts() const {
+    Timestamp min_ts = Timestamp::make(UINT64_MAX, UINT64_MAX, UINT64_MAX);
+
+    for (uint16_t i = 0; i < num_threads_; i++) {
+      if (is_active(i)) {
+        auto ctx_ts = ctxs_[i]->wts();  // 获取该线程当前的写时间戳
+        if (ctx_ts < min_ts) {
+          min_ts = ctx_ts;
+        }
+      }
+    }
+
+    return min_ts;
+  }
+  //新增结束
 
   // uint64_t gc_epoch() const { return gc_epoch_; }
 

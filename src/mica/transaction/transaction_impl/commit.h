@@ -10,7 +10,7 @@ namespace transaction {
 template <class StaticConfig>
 bool Transaction<StaticConfig>::begin(bool peek_only,
                                       const Timestamp* causally_after_ts) {
-  Timing t(ctx_->timing_stack(), &Stats::timestamping);
+  Timing t(ctx_->timing_stack(), &Stats::timestamping); //分配时间戳
 
   if (!ctx_->db_->is_active(ctx_->thread_id_)) return false;
 
@@ -35,7 +35,7 @@ bool Transaction<StaticConfig>::begin(bool peek_only,
   }
 
   while (true) {
-    ts_ = ctx_->generate_timestamp(peek_only);
+    ts_ = ctx_->generate_timestamp(peek_only); //分配逻辑时间戳
 
     // TODO: We should bump the clock instead of waiting for a high timestamp.
     if (causally_after_ts != nullptr) {
@@ -49,7 +49,7 @@ bool Transaction<StaticConfig>::begin(bool peek_only,
 
     bool retry = false;
     RAH rah(this);
-    for (auto& item : to_reserve_) {
+    for (auto& item : to_reserve_) { //若开启重试则进行重试
       rah.reset();
       if (!peek_row(rah, item.tbl, item.cf_id, item.row_id, false,
                     item.read_hint, item.write_hint)) {
@@ -62,7 +62,7 @@ bool Transaction<StaticConfig>::begin(bool peek_only,
     if (!retry) break;
   }
 
-  if (StaticConfig::kCollectROTXStalenessStats && peek_only) {
+  if (StaticConfig::kCollectROTXStalenessStats && peek_only) { //只读事务，统计它看到的数据相对于最新版本数据的滞后时间
     auto clock_diff = ctx_->wts_.get().clock_diff(ctx_->rts_.get());
     auto diff_us = clock_diff / ctx_->db_->sw()->c_1_usec();
     ctx_->ro_tx_staleness_.update(diff_us);
@@ -187,7 +187,7 @@ void Transaction<StaticConfig>::update_rts() {
 template <class StaticConfig>
 void Transaction<StaticConfig>::write() {
   // Row changes are visible.
-  for (auto j = 0; j < wset_size_; j++) {
+  for (auto j = 0; j < wset_size_; j++) { //遍历写集，设置status
     auto i = wset_idx_[j];
     auto item = &accesses_[i];
 
@@ -202,7 +202,7 @@ void Transaction<StaticConfig>::write() {
 
   // auto gc_epoch = ctx_->db_->gc_epoch();
 
-  for (auto j = 0; j < wset_size_; j++) {
+  for (auto j = 0; j < wset_size_; j++) { //再次遍历进行垃圾回收任务
     auto i = wset_idx_[j];
     auto item = &accesses_[i];
 
@@ -359,11 +359,11 @@ bool Transaction<StaticConfig>::commit(Result* detail,
     t.switch_to(&Stats::write);
     if (StaticConfig::kVerbose) printf("write: ts=%" PRIu64 "\n", ts_.t2);
 
-    if (!write_func()) return false;
+    if (!write_func()) return false; //执行数据操作，写入表格、状态区等
 
     // We must insert new rows before marking anything committed because earlier
     // committed rows may have row IDs to new rows.
-    insert_row_deferred();
+    insert_row_deferred(); //operation.h
 
     write();
   }
@@ -407,7 +407,7 @@ bool Transaction<StaticConfig>::abort(bool skip_backoff) {
   if (StaticConfig::kVerbose) printf("abort: ts=%" PRIu64 "\n", ts_.t2);
 
   // Delete the last insert first so that we clean up any newly allocated row
-  // IDs after cleaning up related versions.
+  // IDs after cleaning up related versions. 撤销插入的行
   uint16_t j = iset_size_;
   while (j > 0) {
     j--;
@@ -430,7 +430,7 @@ bool Transaction<StaticConfig>::abort(bool skip_backoff) {
 
     // Free up row IDs for failed row inserts.
     if (item->cf_id == 0) {
-      // OK to use non-atomics as no one else is accessing this row.
+      // OK to use non-atomics as no one else is accessing this row. 释放还没插入表的row version
       ctx_->deallocate_row(item->tbl, item->row_id);
     }
   }

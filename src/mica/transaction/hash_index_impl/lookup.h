@@ -8,7 +8,7 @@ template <class StaticConfig, bool UniqueKey, class Key, class Hash,
           class KeyEqual>
 template <typename Func>
 uint64_t HashIndex<StaticConfig, UniqueKey, Key, Hash, KeyEqual>::lookup(
-    Transaction* tx, const Key& key, bool skip_validation, const Func& func) {
+    Transaction* tx, const Key& key, bool skip_validation, const Func& func) { //hash桶遍历
   Timing t(tx->context()->timing_stack(), &Stats::index_read);
 
   uint64_t chain_len;

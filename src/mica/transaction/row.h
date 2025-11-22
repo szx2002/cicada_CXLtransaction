@@ -32,6 +32,12 @@ struct RowVersion : public RowCommon<StaticConfig> {
   uint16_t size_cls;   // Size class (set by Table or SharedRowVersionPool).
   uint32_t data_size;  // Data size (set by Context).
 
+  //新增:Slot引用字段
+  uint16_t writer_thread_id;
+  uint16_t slot_idx;
+  uint64_t writer_local_seq;
+  //新增结束
+
   static constexpr uint8_t kInlinedRowVersionNUMAID = static_cast<uint8_t>(-1);
   bool is_inlined() const { return numa_id == kInlinedRowVersionNUMAID; }
 

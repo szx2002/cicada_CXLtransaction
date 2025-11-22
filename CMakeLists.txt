@@ -3,8 +3,8 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
 PROJECT(MICA)
 
 
-SET(CMAKE_CXX_COMPILER g++-5)
-SET(CMAKE_C_LINK_EXECUTABLE g++-5)
+#SET(CMAKE_CXX_COMPILER g++-5)
+#SET(CMAKE_C_LINK_EXECUTABLE g++-5)
 
 
 
@@ -110,6 +110,9 @@ IF(LTO)
   ADD_EXECUTABLE(test_tx_index src/mica/test/test_tx_index.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_tx_index ${LIBRARIES})
 
+  ADD_EXECUTABLE(test_partial_commit src/mica/test/test_partial_commit.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_partial_commit ${LIBRARIES})
+
 ELSE(LTO)
 
   ADD_LIBRARY(common ${SOURCES})
@@ -125,5 +128,8 @@ ELSE(LTO)
 
   ADD_EXECUTABLE(test_tx_index src/mica/test/test_tx_index.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_tx_index ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_partial_commit src/mica/test/test_partial_commit.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_partial_commit ${LIBRARIES})
 
 ENDIF(LTO)

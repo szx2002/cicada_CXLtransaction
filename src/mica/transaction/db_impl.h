@@ -217,14 +217,14 @@ void DB<StaticConfig>::idle(uint16_t thread_id) {
 }
 
 template <class StaticConfig>
-void DB<StaticConfig>::quiescence(uint16_t thread_id) {
+void DB<StaticConfig>::quiescence(uint16_t thread_id) { //协调线程静默
   ::mica::util::memory_barrier();
 
   thread_states_[thread_id].quiescence = true;
 
   if (leader_thread_id_ == static_cast<uint16_t>(-1)) {
     if (__sync_bool_compare_and_swap(&leader_thread_id_,
-                                     static_cast<uint16_t>(-1), thread_id)) {
+                                     static_cast<uint16_t>(-1), thread_id)) { //CAS竞争成为leader
       last_non_quiescence_thread_id_ = 0;
 
       auto now = sw_->now();

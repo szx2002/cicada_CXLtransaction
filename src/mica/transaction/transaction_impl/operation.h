@@ -50,6 +50,12 @@ bool Transaction<StaticConfig>::new_row(RAH& rah, Table<StaticConfig>* tbl,
     return false;
   }
 
+  //新增:设置slot引用
+  write_rv->writer_thread_id = ctx_->thread_id_;
+  write_rv->slot_idx = static_cast<uint16_t>(current_slot_idx_);
+  write_rv->writer_local_seq = current_local_seq_;
+  //新增结束
+
   write_rv->older_rv = nullptr;
   write_rv->wts = ts_;
   write_rv->rts.init(ts_);
@@ -129,7 +135,7 @@ bool Transaction<StaticConfig>::new_row(RAH& rah, Table<StaticConfig>* tbl,
 template <class StaticConfig>
 void Transaction<StaticConfig>::prefetch_row(Table<StaticConfig>* tbl,
                                              uint16_t cf_id, uint64_t row_id,
-                                             uint64_t off, uint64_t len) {
+                                             uint64_t off, uint64_t len) { //对数据进行预取减少后续正式访问数据时的cache miss
   assert(began_);
 
   assert(row_id < tbl->row_count());
@@ -166,7 +172,7 @@ bool Transaction<StaticConfig>::peek_row(RAH& rah, Table<StaticConfig>* tbl,
   // Use an access item if it already exists.
   uint16_t bkt_id;
   AccessBucket* bkt;
-  if (check_dup_access) {
+  if (check_dup_access) { //重复访问检测
     if (access_bucket_count_ == 0) {
       for (size_t i = 0; i < StaticConfig::kAccessBucketRootCount; i++) {
         access_buckets_[i].count = 0;
@@ -193,7 +199,7 @@ bool Transaction<StaticConfig>::peek_row(RAH& rah, Table<StaticConfig>* tbl,
     }
   }
 
-  auto head = tbl->head(cf_id, row_id);
+  auto head = tbl->head(cf_id, row_id);// 获取行头
   if (StaticConfig::kInlinedRowVersion && StaticConfig::kInlineWithAltRow &&
       tbl->inlining(cf_id)) {
     auto alt_head = tbl->alt_head(cf_id, row_id);
@@ -204,7 +210,7 @@ bool Transaction<StaticConfig>::peek_row(RAH& rah, Table<StaticConfig>* tbl,
   // auto head_older = rv;
   // auto latest_wts = rv->wts;
 
-  switch (static_cast<int>(read_hint) * 2 + static_cast<int>(write_hint)) {
+  switch (static_cast<int>(read_hint) * 2 + static_cast<int>(write_hint)) { //根据不同策略查找版本链
     default:
     case 0:
       locate<false, false, false>(newer_rv, rv);
@@ -250,11 +256,11 @@ bool Transaction<StaticConfig>::peek_row(RAH& rah, Table<StaticConfig>* tbl,
     printf("too large access\n");
     assert(false);
   }
-  rah.access_item_ = &accesses_[access_size_];
+  rah.access_item_ = &accesses_[access_size_]; //rah绑定访问记录
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-  if (check_dup_access) {
+  if (check_dup_access) { //重复访问检测
     if (bkt->count == StaticConfig::kAccessBucketSize) {
       // Allocate a new acccess bucket if needed.
       auto new_bkt_id = access_bucket_count_++;
@@ -363,7 +369,7 @@ bool Transaction<StaticConfig>::read_row(RAH& rah,
 
   Timing t(ctx_->timing_stack(), &Stats::execution_read);
 
-  auto item = rah.access_item_;
+  auto item = rah.access_item_; //peek_row中已经拿到的rah
 
   // New rows are readable by default.
   if (item->state == RowAccessState::kNew) return true;
@@ -374,12 +380,12 @@ bool Transaction<StaticConfig>::read_row(RAH& rah,
     return true;
   if (item->state != RowAccessState::kPeek) return false;
 
-  item->state = RowAccessState::kRead;
+  item->state = RowAccessState::kRead; //将item状态从peek升级为read 加入读集
   rset_idx_[rset_size_++] = item->i;
 
   if (StaticConfig::kInlinedRowVersion &&
       StaticConfig::kPromoteNonInlinedVersion &&
-      item->tbl->inlining(item->cf_id)) {
+      item->tbl->inlining(item->cf_id)) { //若启用优化，将老数据放入inlined中
     if (!item->read_rv->is_inlined() &&
         // item->head->older_rv == item->read_rv &&
         item->read_rv->wts < ctx_->db_->min_rts() &&
@@ -432,12 +438,19 @@ bool Transaction<StaticConfig>::write_row(RAH& rah, uint64_t data_size,
     return false;
   }
 
+  //初始化版本信息
+  //新增:设置slot引用
+  item->write_rv->writer_thread_id = ctx_->thread_id_;
+  item->write_rv->slot_idx = static_cast<uint16_t>(current_slot_idx_);
+  item->write_rv->writer_local_seq = current_local_seq_;
+  //新增结束
+
   item->write_rv->wts = ts_;
   item->write_rv->rts.init(ts_);
-  item->write_rv->status = RowVersionStatus::kPending;
+  item->write_rv->status = RowVersionStatus::kPending; //这里设置为pending，在commit最后修改为commited
 
   {
-    Timing t(ctx_->timing_stack(), &Stats::row_copy);
+    Timing t(ctx_->timing_stack(), &Stats::row_copy); //将数据复制到新的write_rv中
     if (item->state == RowAccessState::kPeek) {
       if (!data_copier(item->cf_id, item->write_rv, nullptr)) return false;
       item->state = RowAccessState::kWrite;
@@ -500,7 +513,7 @@ void Transaction<StaticConfig>::locate(RowCommon<StaticConfig>*& newer_rv,
   uint64_t chain_len;
   if (StaticConfig::kCollectProcessingStats) chain_len = 0;
 
-  while (true) {
+  while (true) { //遍历版本链，获取可见的最新版本
     // This usually should not happen because (1) a new row that can have no new
     // version is not visible unless someone has a dangling row ID (which is
     // rare), and (2) GC ensures that any transaction can find a committed row
@@ -563,7 +576,7 @@ void Transaction<StaticConfig>::locate(RowCommon<StaticConfig>*& newer_rv,
     rv = rv->older_rv;
   }
 
-  if (ForWrite) {
+  if (ForWrite) { // rts>ts_tx验证
     // Someone have read this row, preventing this row from being overwritten.
     // Thus, abort this transaction.
     if (rv != nullptr && rv->rts.get() > ts_) rv = nullptr;
@@ -593,28 +606,39 @@ RowVersionStatus Transaction<StaticConfig>::wait_for_pending(
 
 template <class StaticConfig>
 bool Transaction<StaticConfig>::insert_version_deferred() {
-  for (auto j = 0; j < wset_size_; j++) {
+  for (auto j = 0; j < wset_size_; j++) { //遍历写集
     auto i = wset_idx_[j];
     auto item = &accesses_[i];
     assert(item->write_rv != nullptr);
 
     while (true) {
-      auto rv = item->newer_rv->older_rv;
+      auto rv = item->newer_rv->older_rv; //从newer_rv->older_rv出发，开始遍历目标行的版本链，查找插入点
       if (item->state == RowAccessState::kReadWrite ||
-          item->state == RowAccessState::kReadDelete) {
+          item->state == RowAccessState::kReadDelete) { //如果是 ReadWrite，需要确认 read_rv 没被并发修改
         locate<true, true, false>(item->newer_rv, rv);
         // Read version changed; abort here without going to validation.
         if (rv != item->read_rv) {
           if (StaticConfig::kReserveAfterAbort)
             reserve(item->tbl, item->cf_id, item->row_id, true, true);
-          return false;
+          return false; //读集检测不通过
         }
-      } else {
+      } else { //没读过直接写
         assert(item->state == RowAccessState::kWrite ||
                item->state == RowAccessState::kDelete);
         locate<false, true, false>(item->newer_rv, rv);
+        '''
+        找到版本时间戳 ≤ 当前事务时间戳（rv->wts < ts_） 的最近版本；
+
+        如果版本 status == kCommitted，就接受；
+
+        如果版本 status == kPending：
+
+        如果配置允许等待，会挂起；
+
+        否则返回 nullptr（表示 abort）；
+        '''
       }
-      if (rv == nullptr) {
+      if (rv == nullptr) {  //没找到符合要求的版本
         if (StaticConfig::kReserveAfterAbort)
           reserve(item->tbl, item->cf_id, item->row_id, false, true);
         return false;
@@ -634,7 +658,7 @@ bool Transaction<StaticConfig>::insert_version_deferred() {
       // // Found a newly inserted version that could be used as a read version.
       // if (older_rv != actual_older_rv) continue;
       if (!__sync_bool_compare_and_swap(&item->newer_rv->older_rv, older_rv,
-                                        item->write_rv))
+                                        item->write_rv)) //CAS尝试把 RowHead 从 rv 替换为 write_rv
         continue;
 
       // Mark the write set item that this row version is visible.
@@ -668,7 +692,7 @@ void Transaction<StaticConfig>::insert_row_deferred() {
 
     assert(item->write_rv != nullptr);
     item->head->older_rv = item->write_rv;
-    item->write_rv->status = RowVersionStatus::kCommitted;
+    item->write_rv->status = RowVersionStatus::kCommitted; //将新版本标记为committed
 
     item->inserted = 1;
   }
