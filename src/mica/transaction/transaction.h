@@ -142,6 +142,11 @@ class Transaction {
   bool began_;
   Timestamp ts_;
 
+  // === 新增:当前事务使用的slot信息 ===
+  uint32_t current_slot_idx_;
+  uint64_t current_local_seq_;
+  // === 新增结束 ===
+
   uint16_t access_size_;
   uint16_t iset_size_;
   uint16_t rset_size_;

@@ -37,7 +37,8 @@ ADD_DEFINITIONS(-pthread)
 
 ADD_DEFINITIONS(-g)
 
-
+ADD_DEFINITIONS(-fsanitize=address)
+SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 
 IF(DEBUG)
 

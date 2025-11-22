@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <thread>
 #include "mica/util/lcore.h"
 #include "mica/util/stopwatch.h"

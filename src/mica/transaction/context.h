@@ -37,7 +37,9 @@ class Context {
         thread_id_(thread_id),
         numa_id_(numa_id),
         backoff_rand_(static_cast<uint64_t>(thread_id)),
-        timing_stack_(&stats_, db_->sw()) {
+        timing_stack_(&stats_, db_->sw())
+        current_slot_idx_(0),  // 新增
+        local_seq_(0){  // 新增
     if (StaticConfig::kPairwiseSleeping) {
       auto active_count = db_->thread_count();
       auto count = ::mica::util::lcore.lcore_count();
@@ -50,6 +52,15 @@ class Context {
       } else
         pair_selector_ = 1;
     }
+
+    //新增:初始化所有slot
+    for (size_t i = 0; i < kMaxSlots; i++) {
+      slots_[i].local_tx_seq = 0;
+      slots_[i].start_ts = Timestamp::make(0, 0, 0);
+      slots_[i].commit_ts = Timestamp::make(0, 0, 0);
+      slots_[i].state = CommitSlotState::kActive;
+    }
+    //新增结束
 
     clock_ = 0;
     clock_boost_ = 0;
@@ -98,6 +109,42 @@ class Context {
   ::mica::util::Latency& ro_tx_staleness() { return ro_tx_staleness_; }
 
   TimingStack* timing_stack() { return &timing_stack_; }
+
+  //新增:Slot管理方法
+  uint32_t allocate_slot() {
+    // 循环查找可复用的slot
+    for (size_t i = 0; i < kMaxSlots; i++) {
+      uint32_t idx = (current_slot_idx_ + i) % kMaxSlots;
+      auto& slot = slots_[idx];
+
+      if (slot.state == CommitSlotState::kCommitted ||
+          slot.state == CommitSlotState::kAborted) {
+        // 检查是否可以安全复用
+        if (slot.commit_ts < db_->min_active_snapshot_ts()) {
+          current_slot_idx_ = idx;
+          return idx;
+        }
+      }
+    }
+
+    // 没有可用slot
+    return static_cast<uint32_t>(-1);
+  }
+
+  CommitSlot<StaticConfig>& get_slot(uint32_t slot_idx) {
+    assert(slot_idx < kMaxSlots);
+    return slots_[slot_idx];
+  }
+
+  const CommitSlot<StaticConfig>& get_slot(uint32_t slot_idx) const {
+    assert(slot_idx < kMaxSlots);
+    return slots_[slot_idx];
+  }
+
+  Timestamp current_snapshot_ts() const {
+    return wts_.get();
+  }
+  //新增结束
 
   void set_clock(uint64_t ref_clock) {
     clock_ = ref_clock;
@@ -293,6 +340,14 @@ class Context {
   DB<StaticConfig>* db_;
   uint16_t thread_id_;
   uint8_t numa_id_;
+
+  //新增:Slot管理相关字段
+  static constexpr size_t kMaxSlots = 256;
+  CommitSlot<StaticConfig> slots_[kMaxSlots];
+  uint32_t current_slot_idx_;
+  uint64_t local_seq_;
+  std::vector<uint64_t> commit_log_;
+  //新增结束
 
   uint16_t next_sync_thread_id_;
 

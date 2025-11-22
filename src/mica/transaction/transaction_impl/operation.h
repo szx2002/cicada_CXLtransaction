@@ -626,7 +626,7 @@ bool Transaction<StaticConfig>::insert_version_deferred() {
         assert(item->state == RowAccessState::kWrite ||
                item->state == RowAccessState::kDelete);
         locate<false, true, false>(item->newer_rv, rv);
-        '''
+        /*'''
         找到版本时间戳 ≤ 当前事务时间戳（rv->wts < ts_） 的最近版本；
 
         如果版本 status == kCommitted，就接受；
@@ -637,6 +637,7 @@ bool Transaction<StaticConfig>::insert_version_deferred() {
 
         否则返回 nullptr（表示 abort）；
         '''
+        */
       }
       if (rv == nullptr) {  //没找到符合要求的版本
         if (StaticConfig::kReserveAfterAbort)
