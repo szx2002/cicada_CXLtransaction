@@ -149,7 +149,7 @@ void worker_proc(Task* task) {
   if (kVerbose) printf("lcore %" PRIu64 "\n", task->thread_id);
 
   Transaction tx(ctx);
-  '''
+  /*'''
   ctx 是每个线程自己的事务上下文环境，里面保存了：
 
   线程本地时间戳（rts, wts）；
@@ -159,7 +159,7 @@ void worker_proc(Task* task) {
   线程ID、NUMA节点信息；
 
   指向数据库对象的指针等。
-  '''
+  '''*/
 
   while (next_tx_i < task->tx_count && !stopping) {
     uint64_t tx_i;

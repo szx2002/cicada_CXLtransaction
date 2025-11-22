@@ -636,8 +636,7 @@ bool Transaction<StaticConfig>::insert_version_deferred() {
         如果配置允许等待，会挂起；
 
         否则返回 nullptr（表示 abort）；
-        '''
-        */
+        '''*/
       }
       if (rv == nullptr) {  //没找到符合要求的版本
         if (StaticConfig::kReserveAfterAbort)
