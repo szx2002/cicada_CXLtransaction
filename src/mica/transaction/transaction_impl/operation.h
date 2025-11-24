@@ -528,6 +528,32 @@ void Transaction<StaticConfig>::locate(RowCommon<StaticConfig>*& newer_rv,
 
     if (StaticConfig::kCollectProcessingStats) chain_len++;
 
+
+    //新增:slot可见性检查(优先级更高)
+    auto writer_ctx = ctx_->db_->context(rv->writer_thread_id);
+    auto& slot = writer_ctx->get_slot(rv->slot_idx);
+
+    if (slot.local_tx_seq != rv->writer_local_seq) {
+      newer_rv = rv;
+      rv = rv->older_rv;
+      continue;
+    }
+
+    if (slot.state != CommitSlotState::kCommitted) {
+      newer_rv = rv;
+      rv = rv->older_rv;
+      continue;
+    }
+
+    if (slot.commit_ts >= ts_) {
+      newer_rv = rv;
+      rv = rv->older_rv;
+      continue;
+    }
+
+  //保留原有的可见性判断作为后备
+  //原有代码暂时保持不变
+
     if (rv->wts < ts_) {
       RowVersionStatus status;
       if (StaticConfig::kNoWaitForPending) {

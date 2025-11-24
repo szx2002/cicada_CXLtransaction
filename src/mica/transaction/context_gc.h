@@ -90,6 +90,26 @@ void Context<StaticConfig>::gc(bool forced) {
              ")\n",
              thread_id_, db_->min_rts().t2, write_rv, write_rv->wts.t2);
 
+    //新增:基于slot的状态验证
+    // 获取write_rv对应的slot
+    auto writer_ctx = db_->context(write_rv->writer_thread_id);
+    auto& slot = writer_ctx->get_slot(write_rv->slot_idx);
+
+    // 检查slot是否被复用(ABA检测)
+    if (slot.local_tx_seq != write_rv->writer_local_seq) {
+      // Slot已被复用,这个版本属于旧事务,可以安全回收
+      // 继续执行GC
+    } else {
+      // Slot未被复用,检查slot状态
+      if (slot.state != CommitSlotState::kCommitted &&
+          slot.state != CommitSlotState::kAborted) {
+        // Slot仍在使用中,不能回收
+        __sync_lock_release(&gc_info->gc_lock);
+        return true;
+      }
+    }
+    //新增结束
+
     assert(write_rv->status >= RowVersionStatus::kCommitted);
     assert(write_rv->wts < db_->min_rts());
 
@@ -135,6 +155,19 @@ void Context<StaticConfig>::gc(bool forced) {
       assert(rv->status != RowVersionStatus::kInvalid);
       assert(rv->wts < db_->min_rts() ||
              (delete_rv && rv->wts <= db_->min_rts()));
+
+      // === 新增:验证slot状态一致性(debug模式) ===
+      #ifndef NDEBUG
+      auto rv_writer_ctx = db_->context(rv->writer_thread_id);
+      auto& rv_slot = rv_writer_ctx->get_slot(rv->slot_idx);
+
+      // 如果slot未被复用,验证状态一致性
+      if (rv_slot.local_tx_seq == rv->writer_local_seq) {
+        assert(rv_slot.state == CommitSlotState::kCommitted ||
+               rv_slot.state == CommitSlotState::kAborted);
+      }
+      #endif
+      // === 新增结束 ===
 
       if (StaticConfig::kCollectProcessingStats) dealloc_chain_len++;
 

@@ -37,6 +37,18 @@ bool Transaction<StaticConfig>::begin(bool peek_only,
   while (true) {
     ts_ = ctx_->generate_timestamp(peek_only); //分配逻辑时间戳
 
+    //新增:slot分配和初始化
+    current_slot_idx_ = ctx_->allocate_slot();
+    if (current_slot_idx_ != static_cast<uint32_t>(-1)) {
+      auto& slot = ctx_->get_slot(current_slot_idx_);
+      slot.local_tx_seq = ++ctx_->local_seq_;
+      slot.start_ts = ts_;  // 使用已生成的ts_
+      slot.commit_ts = Timestamp::make(0, 0, 0);
+      slot.state = CommitSlotState::kActive;
+      current_local_seq_ = slot.local_tx_seq;
+    }
+    //新增结束
+
     // TODO: We should bump the clock instead of waiting for a high timestamp.
     if (causally_after_ts != nullptr) {
       if (ts_ <= *causally_after_ts) {
@@ -216,6 +228,51 @@ void Transaction<StaticConfig>::write() {
 }
 
 template <class StaticConfig>
+void Transaction<StaticConfig>::write_with_slot() {
+  // === 新的slot原子提交实现 ===
+
+  // 1. 获取当前事务的slot
+  auto& slot = ctx_->get_slot(current_slot_idx_);
+
+  // 2. 分配commit_ts并设置为COMMITTING状态
+  slot.commit_ts = ctx_->generate_timestamp();
+  slot.state = CommitSlotState::kCommitting;
+
+  // 3. 使用单次CAS完成原子提交
+  // 注意:这里需要使用原子操作来翻转状态
+  CommitSlotState expected = CommitSlotState::kCommitting;
+  CommitSlotState desired = CommitSlotState::kCommitted;
+
+  // 使用compare_exchange确保原子性
+  __atomic_compare_exchange_n(
+      &slot.state,
+      &expected,
+      desired,
+      false,  // weak
+      __ATOMIC_SEQ_CST,
+      __ATOMIC_SEQ_CST
+  );
+
+  // 4. 更新commit log(可选)
+  ctx_->commit_log_.push_back(slot.commit_ts);
+
+  // 5. 调度GC(保持与原有逻辑一致)
+  for (auto j = 0; j < wset_size_; j++) {
+    auto i = wset_idx_[j];
+    auto item = &accesses_[i];
+
+    if (item->write_rv->older_rv != nullptr) {
+      uint8_t deleted = item->state == RowAccessState::kDelete ||
+                        item->state == RowAccessState::kReadDelete;
+      ctx_->schedule_gc(ts_, item->tbl, item->cf_id, deleted,
+                        item->row_id, item->head, item->write_rv);
+    }
+  }
+
+  // === 新实现结束 ===
+}
+
+template <class StaticConfig>
 template <class WriteFunc>
 bool Transaction<StaticConfig>::commit(Result* detail,
                                        const WriteFunc& write_func) {
@@ -365,7 +422,13 @@ bool Transaction<StaticConfig>::commit(Result* detail,
     // committed rows may have row IDs to new rows.
     insert_row_deferred(); //operation.h
 
-    write();
+    //修改:根据配置选择使用哪个write函数
+    if (StaticConfig::kEnableSlotCommit) {
+      write_with_slot();  // 使用新的slot原子提交
+    } else {
+      write();  // 使用原有的per-version提交
+    }
+    //修改结束
   }
 
   // }    // if (peek_only_)
@@ -405,6 +468,14 @@ bool Transaction<StaticConfig>::abort(bool skip_backoff) {
   Timing t(ctx_->timing_stack(), &Stats::rollback);
 
   if (StaticConfig::kVerbose) printf("abort: ts=%" PRIu64 "\n", ts_.t2);
+
+
+  // === 新增:设置slot状态为ABORTED ===
+  if (current_slot_idx_ != static_cast<uint32_t>(-1)) {
+    auto& slot = ctx_->get_slot(current_slot_idx_);
+    slot.state = CommitSlotState::kAborted;
+  }
+  // === 新增结束 ===
 
   // Delete the last insert first so that we clean up any newly allocated row
   // IDs after cleaning up related versions. 撤销插入的行

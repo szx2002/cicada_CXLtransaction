@@ -131,6 +131,7 @@ class Transaction {
   bool check_version();
   void update_rts();
   void write();
+  void write_with_slot();
 
   void maintenance();
   void backoff();
