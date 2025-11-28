@@ -156,7 +156,7 @@ void Context<StaticConfig>::gc(bool forced) {
       assert(rv->wts < db_->min_rts() ||
              (delete_rv && rv->wts <= db_->min_rts()));
 
-      // === 新增:验证slot状态一致性(debug模式) ===
+      //新增:验证slot状态一致性(debug模式)
       #ifndef NDEBUG
       auto rv_writer_ctx = db_->context(rv->writer_thread_id);
       auto& rv_slot = rv_writer_ctx->get_slot(rv->slot_idx);
@@ -167,7 +167,7 @@ void Context<StaticConfig>::gc(bool forced) {
                rv_slot.state == CommitSlotState::kAborted);
       }
       #endif
-      // === 新增结束 ===
+      //新增结束
 
       if (StaticConfig::kCollectProcessingStats) dealloc_chain_len++;
 
