@@ -4,6 +4,7 @@
 
 #include <algorithm>  // For std::sort().
 #include <unistd.h>
+#include <atomic>
 
 namespace mica {
 namespace transaction {
@@ -227,48 +228,50 @@ void Transaction<StaticConfig>::write() {
   }
 }
 
-template <class StaticConfig>
-void Transaction<StaticConfig>::write_with_slot() {
-  // 1. 获取当前事务的slot
-  auto& slot = ctx_->get_slot(current_slot_idx_);
-
-  // 2. 分配commit_ts并设置为COMMITTING状态
-  slot.commit_ts = ctx_->generate_timestamp();
-  slot.state = CommitSlotState::kCommitting;
-
-  // 3. 使用单次CAS完成原子提交
-  std::atomic<CommitSlotState>& atomic_state =
-      reinterpret_cast<std::atomic<CommitSlotState>&>(slot.state);
-
-  CommitSlotState expected = CommitSlotState::kCommitting;
-  CommitSlotState desired = CommitSlotState::kCommitted;
-
-  bool success = atomic_state.compare_exchange_strong(
-      expected, desired, std::memory_order_seq_cst);
-
-  if (!success) {
-    // CAS失败，理论上不应该发生
-    assert(false);
-  }
-
-  // 4. 内存屏障确保可见性
-  ::mica::util::memory_barrier();
-
-  // 5. 更新commit log
-  ctx_->commit_log_.push_back(slot.commit_ts);
-
-  // 6. 调度GC(保持与原有逻辑一致)
-  for (auto j = 0; j < wset_size_; j++) {
-    auto i = wset_idx_[j];
-    auto item = &accesses_[i];
-
-    if (item->write_rv->older_rv != nullptr) {
-      uint8_t deleted = item->state == RowAccessState::kDelete ||
-                        item->state == RowAccessState::kReadDelete;
-      ctx_->schedule_gc(ts_, item->tbl, item->cf_id, deleted,
-                        item->row_id, item->head, item->write_rv);
-    }
-  }
+template <class StaticConfig>  
+void Transaction<StaticConfig>::write_with_slot() {  
+  // 1. 获取当前事务的slot  
+  auto& slot = ctx_->get_slot(current_slot_idx_);  
+  
+  // 2. 分配commit_ts并设置为COMMITTING状态  
+  slot.commit_ts = ctx_->generate_timestamp();  
+  slot.state = CommitSlotState::kCommitting;  
+  
+  // 3. 使用单次CAS完成原子提交  
+  CommitSlotState expected = CommitSlotState::kCommitting;  
+  CommitSlotState desired = CommitSlotState::kCommitted;  
+  
+  bool success = __atomic_compare_exchange_n(  
+      &slot.state,  
+      &expected,  
+      desired,  
+      false,  
+      __ATOMIC_SEQ_CST,  
+      __ATOMIC_SEQ_CST  
+  );  
+  
+  if (!success) {  
+    assert(false);  
+  }  
+  
+  // 4. 内存屏障确保可见性  
+  ::mica::util::memory_barrier();  
+  
+  // 5. 更新commit log  
+  ctx_->commit_log_.push_back(slot.commit_ts);  
+  
+  // 6. 调度GC  
+  for (auto j = 0; j < wset_size_; j++) {  
+    auto i = wset_idx_[j];  
+    auto item = &accesses_[i];  
+  
+    if (item->write_rv->older_rv != nullptr) {  
+      uint8_t deleted = item->state == RowAccessState::kDelete ||  
+                        item->state == RowAccessState::kReadDelete;  
+      ctx_->schedule_gc(ts_, item->tbl, item->cf_id, deleted,  
+                        item->row_id, item->head, item->write_rv);  
+    }  
+  }  
 }
 
 template <class StaticConfig>
