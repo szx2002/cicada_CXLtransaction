@@ -229,8 +229,6 @@ void Transaction<StaticConfig>::write() {
 
 template <class StaticConfig>
 void Transaction<StaticConfig>::write_with_slot() {
-  // === 新的slot原子提交实现 ===
-
   // 1. 获取当前事务的slot
   auto& slot = ctx_->get_slot(current_slot_idx_);
 
@@ -239,24 +237,27 @@ void Transaction<StaticConfig>::write_with_slot() {
   slot.state = CommitSlotState::kCommitting;
 
   // 3. 使用单次CAS完成原子提交
-  // 注意:这里需要使用原子操作来翻转状态
+  std::atomic<CommitSlotState>& atomic_state =
+      reinterpret_cast<std::atomic<CommitSlotState>&>(slot.state);
+
   CommitSlotState expected = CommitSlotState::kCommitting;
   CommitSlotState desired = CommitSlotState::kCommitted;
 
-  // 使用compare_exchange确保原子性
-  __atomic_compare_exchange_n(
-      &slot.state,
-      &expected,
-      desired,
-      false,  // weak
-      __ATOMIC_SEQ_CST,
-      __ATOMIC_SEQ_CST
-  );
+  bool success = atomic_state.compare_exchange_strong(
+      expected, desired, std::memory_order_seq_cst);
 
-  // 4. 更新commit log(可选)
+  if (!success) {
+    // CAS失败，理论上不应该发生
+    assert(false);
+  }
+
+  // 4. 内存屏障确保可见性
+  ::mica::util::memory_barrier();
+
+  // 5. 更新commit log
   ctx_->commit_log_.push_back(slot.commit_ts);
 
-  // 5. 调度GC(保持与原有逻辑一致)
+  // 6. 调度GC(保持与原有逻辑一致)
   for (auto j = 0; j < wset_size_; j++) {
     auto i = wset_idx_[j];
     auto item = &accesses_[i];
@@ -268,8 +269,6 @@ void Transaction<StaticConfig>::write_with_slot() {
                         item->row_id, item->head, item->write_rv);
     }
   }
-
-  // === 新实现结束 ===
 }
 
 template <class StaticConfig>

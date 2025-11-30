@@ -141,8 +141,6 @@ struct BasicDBConfig {
 
   // 是否启用BW-tree索引(暂时设为false,后续实现)
   static constexpr bool kEnableBWTree = false;
-
-  static constexpr bool kEnableSlotCommit = true;  // 设为true启用slot提交
   //新增结束
 
   // Use ActiveTiming for fine-grained tracking (slow) and DummyTiming to omit
