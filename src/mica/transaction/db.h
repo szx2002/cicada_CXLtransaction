@@ -256,6 +256,18 @@ class DB {
   }
   //新增结束
 
+  //新增：获取CXL内存(NUMA节点1)的PagePool
+  PagePool<StaticConfig>* cxl_page_pool() {
+    return page_pools_[1];  // NUMA节点1作为CXL内存
+  }
+
+  // 检查CXL内存是否可用
+  bool is_cxl_available() const {
+    return page_pools_[1] != nullptr &&
+           page_pools_[1]->free_count() > 0;
+  }
+  //新增结束
+
   bool create_table(std::string name, uint16_t cf_count,
                     const uint64_t* data_size_hints);
 
@@ -263,6 +275,16 @@ class DB {
   const Table<StaticConfig>* get_table(std::string name) const {
     return tables_[name];
   }
+
+  //新增：CXL_table
+  bool create_cxl_table(std::string name, uint16_t cf_count,
+                      const uint64_t* data_size_hints);
+
+  Table<StaticConfig>* get_cxl_table(std::string name) { return cxl_tables_[name]; }
+  const Table<StaticConfig>* get_cxl_table(std::string name) const {
+    return cxl_tables_[name];
+  }
+  //新增结束
 
   bool create_hash_index_unique_u64(std::string name,
                                     Table<StaticConfig>* main_tbl,
@@ -358,6 +380,7 @@ class DB {
       row_version_pools_[StaticConfig::kMaxLCoreCount];
 
   std::unordered_map<std::string, Table<StaticConfig>*> tables_;
+  std::map<std::string, Table<StaticConfig>*> cxl_tables_; //CXL_table
 
   std::unordered_map<std::string, HashIndexUniqueU64*> hash_idxs_unique_u64_;
   std::unordered_map<std::string, HashIndexNonuniqueU64*>

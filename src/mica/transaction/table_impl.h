@@ -301,6 +301,66 @@ bool Table<StaticConfig>::allocate_rows(Context<StaticConfig>* ctx,
   return true;
 }
 
+template <class StaticConfig>
+bool Table<StaticConfig>::allocate_cxl_rows(Context<StaticConfig>* ctx,
+                                           std::vector<uint64_t>& row_ids) {
+  if (StaticConfig::kCollectProcessingStats) ctx->stats().insert_row_count++;
+
+  // 强制从NUMA节点1(CXL内存)分配
+  uint8_t cxl_numa_id = 1;
+  char* p = nullptr;
+
+  // 直接使用CXL内存池分配
+  p = db_->cxl_page_pool()->allocate();
+  if (p == nullptr) {
+    printf("failed to allocate CXL memory\n");
+    return false;
+  }
+
+  // 初始化行数据结构
+  for (uint64_t i = 0; i < second_level_width_; i++) {
+    for (uint16_t cf_id = 0; cf_id < cf_count_; cf_id++) {
+      auto& cf = cf_[cf_id];
+      auto h = reinterpret_cast<RowHead<StaticConfig>*>(p + i * total_rh_size_ +
+                                                        cf.rh_offset);
+      h->older_rv = nullptr;
+
+      if (StaticConfig::kInlinedRowVersion && cf.inlining) {
+        auto inlined_rv = h->inlined_rv;
+        inlined_rv->status = RowVersionStatus::kInvalid;
+        inlined_rv->numa_id = cxl_numa_id;  // 标记为CXL内存
+        inlined_rv->size_cls = cf.inlined_rv_size_cls;
+      }
+    }
+  }
+
+  // 获取表锁并分配行ID
+  while (__sync_lock_test_and_set(&lock_, 1) == 1) ::mica::util::pause();
+
+  uint64_t row_id = row_count_;
+  if ((row_id >> row_id_shift_) == kFirstLevelWidth) {
+    printf("maximum CXL table size (%" PRIu64 " rows) reached\n",
+           kFirstLevelWidth * second_level_width_);
+    db_->cxl_page_pool()->free(p);
+    __sync_lock_release(&lock_);
+    return false;
+  }
+
+  // 注册CXL页面
+  root_[row_id >> row_id_shift_] = p;
+  cxl_page_numa_ids_[row_id >> row_id_shift_] = cxl_numa_id;
+
+  row_count_ += second_level_width_;
+  __sync_lock_release(&lock_);
+
+  // 生成行ID列表
+  for (uint64_t i = 0; i < second_level_width_; i++) {
+    row_ids.push_back(row_id + second_level_width_ - 1 - i);
+  }
+
+  return true;
+}
+
 // template <class StaticConfig>
 // void Table<StaticConfig>::delete_row(Context<StaticConfig>* ctx,
 //                                      uint64_t row_id) {

@@ -126,6 +126,7 @@ HugeTLBFS_SHM::HugeTLBFS_SHM(const ::mica::util::Config& config)
           "domain count in the system\n");
   }
 
+  /*
   {
     auto c = config.get("num_pages_to_reserve");
     if (!c.exists()) {
@@ -143,7 +144,39 @@ HugeTLBFS_SHM::HugeTLBFS_SHM(const ::mica::util::Config& config)
       printf(
           "warning: num_pages_to_reserve has more entries than the total NUMA "
           "domain count in the system\n");
+  }*/
+
+  //新增
+  {
+    auto c = config.get("num_pages_to_reserve");
+    if (!c.exists()) {
+      // 默认配置：为NUMA节点1(CXL)预留4096个页面
+      num_pages_to_reserve_.push_back(0);  // NUMA节点0
+      num_pages_to_reserve_.push_back(4096);  // NUMA节点1 - CXL内存
+    } else {
+      // 读取配置并确保包含NUMA节点1
+      for (size_t i = 0; i < c.size(); i++) {
+        size_t page_count = c.get(i).get_uint64();
+        num_pages_to_reserve_.push_back(page_count);
+      }
+    }
+
+    // 确保至少有2个NUMA节点的配置
+    while (num_pages_to_reserve_.size() < 2) {
+      num_pages_to_reserve_.push_back(0);
+    }
+
+    // 强制为NUMA节点1预留CXL内存页面
+    if (num_pages_to_reserve_.size() > 1) {
+      num_pages_to_reserve_[1] = 4096;  // CXL内存预留
+    }
+
+    // 填充剩余节点
+    for (size_t i = num_pages_to_reserve_.size();
+         i < ::mica::util::lcore.numa_count(); i++)
+      num_pages_to_reserve_.push_back(0);
   }
+  //新增结束
 
   clean_files_on_init_ = config.get("clean_files_on_init").get_bool(false);
   clean_other_files_on_init_ =

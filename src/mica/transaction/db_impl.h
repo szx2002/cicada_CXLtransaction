@@ -83,6 +83,19 @@ bool DB<StaticConfig>::create_table(std::string name, uint16_t cf_count,
   return true;
 }
 
+//新增：cxl_table
+template <class StaticConfig>
+bool DB<StaticConfig>::create_cxl_table(std::string name, uint16_t cf_count,
+                                        const uint64_t* data_size_hints) {
+  if (cxl_tables_.find(name) != cxl_tables_.end()) return false;
+
+  // 创建CXL专用的Table，强制使用NUMA节点1
+  auto tbl = new CXLTable<StaticConfig>(this, cf_count, data_size_hints, 1);
+  cxl_tables_[name] = tbl;
+  return true;
+}
+//新增结束
+
 template <class StaticConfig>
 bool DB<StaticConfig>::create_hash_index_unique_u64(
     std::string name, Table<StaticConfig>* main_tbl,

@@ -57,6 +57,8 @@ class Table {
   bool allocate_rows(Context<StaticConfig>* ctx,
                      std::vector<uint64_t>& row_ids);
 
+  bool allocate_cxl_rows(Context<StaticConfig>* ctx, std::vector<uint64_t>& row_ids); //新增allocate_cxl
+
   bool renew_rows(Context<StaticConfig>* ctx, uint16_t cf_id,
                   uint64_t& row_id_begin, uint64_t row_id_end,
                   bool expiring_only);
