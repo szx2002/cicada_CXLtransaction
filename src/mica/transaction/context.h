@@ -229,15 +229,16 @@ class Context {
   uint64_t allocate_row(Table<StaticConfig>* tbl) {
     auto& free_row_ids = free_rows_[tbl];
     if (free_row_ids.empty()) {
-      //if (!tbl->allocate_rows(this, free_row_ids))
-        //return static_cast<uint64_t>(-1);
-      if (use_cxl) {
-        if (!tbl->allocate_cxl_rows(this, free_row_ids))
-          return static_cast<uint64_t>(-1);
-      } else {
-        if (!tbl->allocate_rows(this, free_row_ids))
-          return static_cast<uint64_t>(-1);
-      }
+      if (!tbl->allocate_rows(this, free_row_ids))
+        return static_cast<uint64_t>(-1);
+    }
+
+    if (use_cxl) {
+      if (!tbl->allocate_cxl_rows(this, free_row_ids))
+        return static_cast<uint64_t>(-1);
+    } else {
+      if (!tbl->allocate_rows(this, free_row_ids))
+        return static_cast<uint64_t>(-1);
     }
     auto row_id = free_row_ids.back();
     free_row_ids.pop_back();

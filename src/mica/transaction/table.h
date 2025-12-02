@@ -94,6 +94,8 @@ class Table {
 
   ColumnFamilyInfo cf_[StaticConfig::kMaxColumnFamilyCount];
 
+  uint8_t* cxl_page_numa_ids_;  // CXL页面的NUMA ID映射
+
   char* base_root_;
   char** root_;
   uint8_t* page_numa_ids_;

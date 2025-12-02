@@ -3,6 +3,7 @@
 #define MICA_TRANSACTION_DB_H_
 
 #include <unordered_map>
+#include <map>
 #include "mica/common.h"
 #include "mica/transaction/timestamp.h"
 #include "mica/alloc/hugetlbfs_shm.h"
@@ -14,6 +15,7 @@
 #include "mica/transaction/btree_index.h"
 #include "mica/transaction/logging.h"
 #include "mica/util/lcore.h"
+#include "mica/transaction/cxl_table.h"
 
 namespace mica {
 namespace transaction {
@@ -277,12 +279,13 @@ class DB {
   }
 
   //新增：CXL_table
-  bool create_cxl_table(std::string name, uint16_t cf_count,
-                      const uint64_t* data_size_hints);
-
-  Table<StaticConfig>* get_cxl_table(std::string name) { return cxl_tables_[name]; }
-  const Table<StaticConfig>* get_cxl_table(std::string name) const {
-    return cxl_tables_[name];
+  bool create_cxl_table(std::string name, uint16_t cf_count,  
+                      const uint64_t* data_size_hints);  
+  Table<StaticConfig>* get_cxl_table(std::string name) {  
+    return cxl_tables_[name];  
+  }  
+  const Table<StaticConfig>* get_cxl_table(std::string name) const {  
+    return cxl_tables_[name];  
   }
   //新增结束
 
