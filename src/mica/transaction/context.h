@@ -226,7 +226,7 @@ class Context {
       return wts;
   }
 
-  uint64_t allocate_row(Table<StaticConfig>* tbl) {
+  uint64_t allocate_row(Table<StaticConfig>* tbl, bool use_cxl = false) {
     auto& free_row_ids = free_rows_[tbl];
     if (free_row_ids.empty()) {
       if (!tbl->allocate_rows(this, free_row_ids))
