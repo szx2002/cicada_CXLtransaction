@@ -141,8 +141,11 @@ struct BasicDBConfig {
   // 是否启用slot原子提交机制
   static constexpr bool kEnableSlotCommit = true;
 
+  // 启用CXL主导设计
+  static constexpr bool kEnableCXLFirstDesign = true;
+
   // 是否启用BW-tree索引(暂时设为false,后续实现)
-  static constexpr bool kEnableBWTree = false;
+  static constexpr bool kEnableBWTree = true;
   //新增结束
 
   // Use ActiveTiming for fine-grained tracking (slow) and DummyTiming to omit
@@ -279,13 +282,13 @@ class DB {
   }
 
   //新增：CXL_table
-  bool create_cxl_table(std::string name, uint16_t cf_count,  
-                      const uint64_t* data_size_hints);  
-  Table<StaticConfig>* get_cxl_table(std::string name) {  
-    return cxl_tables_[name];  
-  }  
-  const Table<StaticConfig>* get_cxl_table(std::string name) const {  
-    return cxl_tables_[name];  
+  bool create_cxl_table(std::string name, uint16_t cf_count,
+                      const uint64_t* data_size_hints);
+  Table<StaticConfig>* get_cxl_table(std::string name) {
+    return cxl_tables_[name];
+  }
+  const Table<StaticConfig>* get_cxl_table(std::string name) const {
+    return cxl_tables_[name];
   }
   //新增结束
 
@@ -356,6 +359,21 @@ class DB {
 
     return min_ts;
   }
+
+  // 新增：CXL元数据分配方法
+  void allocate_cxl_metadata() {
+    auto cxl_pool = cxl_page_pool();
+    char* p = cxl_pool->allocate();
+
+    min_wts_ = reinterpret_cast<ConcurrentTimestamp*>(p);
+    min_rts_ = reinterpret_cast<ConcurrentTimestamp*>(p + sizeof(ConcurrentTimestamp));
+    ref_clock_ = reinterpret_cast<volatile uint64_t*>(p + 2 * sizeof(ConcurrentTimestamp));
+
+    // 初始化
+    min_wts_->init(ctxs_[0]->generate_timestamp());
+    min_rts_->init(min_wts_->get());
+    *ref_clock_ = 0;
+  }
   //新增结束
 
   // uint64_t gc_epoch() const { return gc_epoch_; }
@@ -400,7 +418,8 @@ class DB {
   bool clock_init_[StaticConfig::kMaxLCoreCount];
 
   // Modified by the leader thread.
-  ConcurrentTimestamp min_wts_ __attribute__((aligned(64)));
+  //ConcurrentTimestamp min_wts_ __attribute__((aligned(64)));
+  ConcurrentTimestamp* min_wts_; //指向CXL内存
   ConcurrentTimestamp min_rts_;
   volatile uint64_t ref_clock_;
   // volatile uint64_t gc_epoch_;

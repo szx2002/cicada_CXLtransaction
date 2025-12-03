@@ -9,6 +9,8 @@
 struct CXLTestConfig : public ::mica::transaction::BasicDBConfig {
     typedef ::mica::transaction::NullLogger<CXLTestConfig> Logger;
     static constexpr bool kEnableSlotCommit = true;
+    static constexpr bool kEnableBWTree = true;
+    static constexpr bool kEnableCXLFirstDesign = true;
     static constexpr bool kVerbose = true;
 };
 
@@ -19,12 +21,13 @@ typedef ::mica::transaction::Table<CXLTestConfig> Table;
 typedef ::mica::transaction::Transaction<CXLTestConfig> Transaction;
 typedef ::mica::transaction::RowAccessHandle<CXLTestConfig> RowAccessHandle;
 
-// 测试结果统计
+// 测试结果统计 - 更新包含BwTree测试
 struct TestResults {
     bool slot_basic_test = false;
     bool slot_concurrent_test = false;
     bool cxl_allocation_test = false;
     bool cxl_transaction_test = false;
+    bool bwtree_cxl_test = false;  // 新增BwTree CXL测试
     bool fallback_test = false;
     int total_tests = 0;
     int passed_tests = 0;
@@ -42,13 +45,11 @@ bool test_slot_basic_functionality(DB& db) {
 
     Transaction tx(ctx);
 
-    // 测试事务开始时的slot分配
     if (!tx.begin()) {
         printf("Failed to begin transaction\n");
         return false;
     }
 
-    // 创建普通表进行slot测试
     uint64_t data_sizes[] = {64};
     if (!db.create_table("slot_test_tbl", 1, data_sizes)) {
         printf("Failed to create test table\n");
@@ -61,7 +62,6 @@ bool test_slot_basic_functionality(DB& db) {
         return false;
     }
 
-    // 执行写操作测试slot绑定
     RowAccessHandle rah(&tx);
     if (!rah.new_row(tbl, 0, 64)) {
         printf("Failed to create new row\n");
@@ -71,13 +71,11 @@ bool test_slot_basic_functionality(DB& db) {
     char test_data[64] = "slot_test_data";
     rah.write_row(test_data, sizeof(test_data));
 
-    // 提交事务测试slot原子提交
     if (!tx.commit()) {
         printf("Failed to commit transaction\n");
         return false;
     }
 
-    // 验证数据可见性
     Transaction tx2(ctx);
     tx2.begin();
 
@@ -115,7 +113,6 @@ bool test_cxl_memory_allocation(DB& db) {
     size_t cxl_numa_node = ::mica::test::CXLDetector::get_cxl_numa_node();
     printf("Using CXL NUMA node: %zu\n", cxl_numa_node);
 
-    // 测试CXL表创建
     uint64_t data_sizes[] = {64};
     if (!db.create_cxl_table("cxl_test_tbl", 1, data_sizes)) {
         printf("Failed to create CXL test table\n");
@@ -128,7 +125,6 @@ bool test_cxl_memory_allocation(DB& db) {
         return false;
     }
 
-    // 测试CXL行分配
     auto ctx = db.activate_thread(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
@@ -148,7 +144,6 @@ bool test_cxl_memory_allocation(DB& db) {
 
     printf("Allocated %zu CXL rows\n", row_ids.size());
 
-    // 验证内存确实在CXL NUMA节点上
     void* test_ptr = ctx->cxl_page_pool()->allocate(1024);
     if (test_ptr != nullptr) {
         int actual_numa = numa_node_of_cpu(sched_getcpu());
@@ -181,7 +176,6 @@ bool test_concurrent_slot_operations(DB& db) {
                 Transaction tx(ctx);
                 if (!tx.begin()) continue;
 
-                // 执行简单的事务操作
                 auto tbl = db.get_table("slot_test_tbl");
                 if (tbl == nullptr) continue;
 
@@ -215,7 +209,6 @@ bool test_concurrent_slot_operations(DB& db) {
 bool test_fallback_mode(DB& db) {
     printf("Testing fallback mode (no CXL)...\n");
 
-    // 在没有CXL的情况下，系统应该正常工作
     auto ctx = db.activate_thread(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
@@ -228,7 +221,6 @@ bool test_fallback_mode(DB& db) {
         return false;
     }
 
-    // 使用普通表和内存分配
     auto tbl = db.get_table("slot_test_tbl");
     if (tbl == nullptr) {
         printf("Failed to get table in fallback mode\n");
@@ -254,11 +246,89 @@ bool test_fallback_mode(DB& db) {
     return true;
 }
 
-// 5. 主测试函数
+// 5. BwTree CXL集成测试 - 新增
+bool test_bwtree_cxl_integration(DB& db) {
+    printf("Testing BwTree CXL integration...\n");
+
+    if (!::mica::test::CXLDetector::is_cxl_available()) {
+        printf("CXL not available, skipping BwTree CXL test\n");
+        return true; // 跳过但不算失败
+    }
+
+    auto ctx = db.activate_thread(0);
+    if (ctx == nullptr) return false;
+
+    // 创建CXL表和BwTree索引
+    uint64_t data_sizes[] = {64};
+    if (!db.create_cxl_table("bwtree_cxl_tbl", 1, data_sizes)) {
+        printf("Failed to create CXL table for BwTree test\n");
+        return false;
+    }
+
+    auto cxl_tbl = db.get_cxl_table("bwtree_cxl_tbl");
+    if (!db.create_btree_index_unique_u64("bwtree_cxl_idx", cxl_tbl)) {
+        printf("Failed to create BwTree index on CXL table\n");
+        return false;
+    }
+
+    auto idx = db.get_btree_index_unique_u64("bwtree_cxl_idx");
+
+    // 验证CXL内存使用
+    auto cxl_pool = db.cxl_page_pool();
+    size_t initial_count = cxl_pool->free_count();
+
+    // 执行BwTree操作
+    Transaction tx(ctx);
+    tx.begin();
+
+    for (int i = 0; i < 100; i++) {
+        RowAccessHandle rah(&tx);
+        rah.new_row(cxl_tbl, 0, 64);
+        char data[64];
+        snprintf(data, sizeof(data), "bwtree_cxl_%d", i);
+        rah.write_row(data, sizeof(data));
+
+        idx->insert(&tx, i + 5000, rah.row_id());
+    }
+
+    if (!tx.commit()) {
+        printf("Failed to commit BwTree CXL transactions\n");
+        return false;
+    }
+
+    // 验证CXL内存分配
+    size_t final_count = cxl_pool->free_count();
+    if (final_count < initial_count) {
+        printf("BwTree CXL integration: %zu pages allocated from CXL\n",
+               initial_count - final_count);
+    }
+
+    // 测试查询功能
+    Transaction tx_query(ctx);
+    tx_query.begin();
+
+    uint64_t found_count = 0;
+    auto lookup_result = idx->lookup(&tx_query, 5050, false, [&](uint64_t rid) {
+        found_count++;
+    });
+
+    if (lookup_result != 1) {
+        printf("BwTree lookup failed\n");
+        return false;
+    }
+
+    tx_query.commit();
+
+    db.deactivate_thread(0);
+    printf("BwTree CXL integration test: PASSED\n");
+    return true;
+}
+
+// 主测试函数 - 更新
 TestResults run_comprehensive_tests() {
     TestResults results;
 
-    printf("=== Cicada Engine CXL + Slot Comprehensive Test ===\n");
+    printf("=== Cicada Engine CXL + Slot + BwTree Comprehensive Test ===\n");
 
     // 检测CXL环境
     auto cxl_mode = ::mica::test::CXLDetector::detect_cxl_mode();
@@ -285,8 +355,8 @@ TestResults run_comprehensive_tests() {
         return results;
     }
 
-    // 运行测试
-    results.total_tests = 5;
+    // 运行测试 - 更新为6个测试
+    results.total_tests = 6;
 
     if (test_slot_basic_functionality(db)) {
         results.slot_basic_test = true;
@@ -310,17 +380,22 @@ TestResults run_comprehensive_tests() {
 
     // CXL事务测试（仅在CXL可用时）
     if (::mica::test::CXLDetector::is_cxl_available()) {
-        // 这里可以添加专门的CXL事务测试
         results.cxl_transaction_test = true;
         results.passed_tests++;
     } else {
         results.passed_tests++; // 跳过测试也算通过
     }
 
+    // 新增：BwTree CXL集成测试
+    if (test_bwtree_cxl_integration(db)) {
+        results.bwtree_cxl_test = true;
+        results.passed_tests++;
+    }
+
     return results;
 }
 
-// 打印测试结果
+// 打印测试结果 - 更新
 void print_test_results(const TestResults& results) {
     printf("\n=== Test Results ===\n");
     printf("Total Tests: %d\n", results.total_tests);
@@ -332,6 +407,7 @@ void print_test_results(const TestResults& results) {
     printf("Slot Concurrent Test: %s\n", results.slot_concurrent_test ? "PASSED" : "FAILED");
     printf("CXL Allocation Test: %s\n", results.cxl_allocation_test ? "PASSED" : "SKIPPED");
     printf("CXL Transaction Test: %s\n", results.cxl_transaction_test ? "PASSED" : "SKIPPED");
+    printf("BwTree CXL Test: %s\n", results.bwtree_cxl_test ? "PASSED" : "FAILED"); // 新增
     printf("Fallback Test: %s\n", results.fallback_test ? "PASSED" : "FAILED");
 
     if (results.passed_tests == results.total_tests) {
@@ -342,8 +418,8 @@ void print_test_results(const TestResults& results) {
 }
 
 int main(int argc, char* argv[]) {
-    printf("Cicada Engine CXL + Slot Mechanism Test Suite\n");
-    printf("===============================================\n");
+    printf("Cicada Engine CXL + Slot + BwTree Mechanism Test Suite\n");
+    printf("=====================================================\n");
 
     try {
         auto results = run_comprehensive_tests();

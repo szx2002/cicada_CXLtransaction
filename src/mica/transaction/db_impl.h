@@ -54,6 +54,7 @@ DB<StaticConfig>::DB(PagePool<StaticConfig>** page_pools, Logger* logger,
   min_wts_.init(ctxs_[0]->generate_timestamp());
   min_rts_.init(min_wts_.get());
   ref_clock_ = 0;
+  allocate_cxl_metadata();  // 修改：初始化CXL全局元数据
   // gc_epoch_ = 0;
 }
 

@@ -551,7 +551,7 @@ void Transaction<StaticConfig>::locate(RowCommon<StaticConfig>*& newer_rv,
       continue;
     }
 
-  //保留原有的可见性判断作为后备
+  //保留原有的可见性判断
   //原有代码暂时保持不变
 
     if (rv->wts < ts_) {

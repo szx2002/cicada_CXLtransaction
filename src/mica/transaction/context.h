@@ -55,6 +55,7 @@ class Context {
     }
 
     //新增:初始化所有slot
+    allocate_cxl_slots();
     for (size_t i = 0; i < kMaxSlots; i++) {
       slots_[i].local_tx_seq = 0;
       slots_[i].start_ts = Timestamp::make(0, 0, 0);
@@ -304,9 +305,18 @@ class Context {
     }
 
     //内容过大或者以上全部失败 退回外部分配
+    /*
     auto pool = db_->row_version_pool(thread_id_);
     auto rv = pool->allocate(size_cls);
+    rv->data_size = static_cast<uint32_t>(data_size);*/
+    // 修改：直接从CXL内存分配RowVersion
+    auto cxl_pool = db_->cxl_page_pool();
+    char* p = cxl_pool->allocate();
+    if (!p) return nullptr;
+
+    auto rv = reinterpret_cast<RowVersion<StaticConfig>*>(p);
     rv->data_size = static_cast<uint32_t>(data_size);
+    rv->numa_id = 1; // 标记为CXL内存
     return rv;
   }
 
@@ -342,6 +352,21 @@ class Context {
   void quiescence() { db_->quiescence(thread_id_); }
   void idle() { db_->idle(thread_id_); }
 
+  // 新增：CXL slot分配方法
+  void allocate_cxl_slots() {
+      auto cxl_pool = db_->cxl_page_pool();
+      char* p = cxl_pool->allocate();
+      slots_ = reinterpret_cast<CommitSlot<StaticConfig>*>(p);
+
+      // 初始化所有slot
+      for (size_t i = 0; i < kMaxSlots; i++) {
+          slots_[i].local_tx_seq = 0;
+          slots_[i].start_ts = Timestamp::make(0, 0, 0);
+          slots_[i].commit_ts = Timestamp::make(0, 0, 0);
+          slots_[i].state = CommitSlotState::kActive;
+      }
+  }
+
  private:
   friend class Table<StaticConfig>;
   friend class Transaction<StaticConfig>;
@@ -352,7 +377,7 @@ class Context {
 
   //新增:Slot管理相关字段
   static constexpr size_t kMaxSlots = 256;
-  CommitSlot<StaticConfig> slots_[kMaxSlots];
+  CommitSlot<StaticConfig>* slots_;  // 指向CXL分配的slot数组
   uint32_t current_slot_idx_;
   uint64_t local_seq_;
   std::vector<uint64_t> commit_log_;

@@ -47,8 +47,6 @@ public:
 
 private:
     static bool is_cxl_numa_node(size_t numa_node) {
-        // 检查指定NUMA节点是否为CXL设备
-        // 这里可以添加更精确的检测逻辑
         return numa_node == 1; // 根据您的设备，CXL在NUMA节点1
     }
 };

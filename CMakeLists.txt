@@ -120,6 +120,9 @@ IF(LTO)
 
   ADD_EXECUTABLE(test_cxl_slot src/mica/test/test_cxl_slot.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_slot ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_bwtree_index src/mica/test/test_bwtree_index.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_bwtree_index ${LIBRARIES})
   #// === 添加结束 ===
 
 ELSE(LTO)
@@ -147,6 +150,9 @@ ELSE(LTO)
 
   ADD_EXECUTABLE(test_cxl_slot src/mica/test/test_cxl_slot.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_slot ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_bwtree_index src/mica/test/test_bwtree_index.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_bwtree_index ${LIBRARIES})
   #// === 添加结束 ===
 
 ENDIF(LTO)
