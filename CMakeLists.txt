@@ -114,13 +114,13 @@ IF(LTO)
   ADD_EXECUTABLE(test_partial_commit src/mica/test/test_partial_commit.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_partial_commit ${LIBRARIES})
 
-  // === 在这里添加CXL测试 ===
+  #// === 在这里添加CXL测试 ===
   ADD_EXECUTABLE(test_cxl_memory src/mica/test/test_cxl_memory.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_memory ${LIBRARIES})
 
   ADD_EXECUTABLE(test_cxl_slot src/mica/test/test_cxl_slot.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_slot ${LIBRARIES})
-  // === 添加结束 ===
+  #// === 添加结束 ===
 
 ELSE(LTO)
 
@@ -141,12 +141,12 @@ ELSE(LTO)
   ADD_EXECUTABLE(test_partial_commit src/mica/test/test_partial_commit.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_partial_commit ${LIBRARIES})
 
-  // === 在这里添加CXL测试 ===
+  #// === 在这里添加CXL测试 ===
   ADD_EXECUTABLE(test_cxl_memory src/mica/test/test_cxl_memory.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_memory ${LIBRARIES})
 
   ADD_EXECUTABLE(test_cxl_slot src/mica/test/test_cxl_slot.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_slot ${LIBRARIES})
-  // === 添加结束 ===
+  #// === 添加结束 ===
 
 ENDIF(LTO)
