@@ -115,9 +115,6 @@ IF(LTO)
   TARGET_LINK_LIBRARIES(test_partial_commit ${LIBRARIES})
 
   #// === 在这里添加CXL测试 ===
-  ADD_EXECUTABLE(test_cxl_memory src/mica/test/test_cxl_memory.cc ${SOURCES})
-  TARGET_LINK_LIBRARIES(test_cxl_memory ${LIBRARIES})
-
   ADD_EXECUTABLE(test_cxl_slot src/mica/test/test_cxl_slot.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_slot ${LIBRARIES})
 
@@ -145,9 +142,6 @@ ELSE(LTO)
   TARGET_LINK_LIBRARIES(test_partial_commit ${LIBRARIES})
 
   #// === 在这里添加CXL测试 ===
-  ADD_EXECUTABLE(test_cxl_memory src/mica/test/test_cxl_memory.cc ${SOURCES})
-  TARGET_LINK_LIBRARIES(test_cxl_memory ${LIBRARIES})
-
   ADD_EXECUTABLE(test_cxl_slot src/mica/test/test_cxl_slot.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_slot ${LIBRARIES})
 
