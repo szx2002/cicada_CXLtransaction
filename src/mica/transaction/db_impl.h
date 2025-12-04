@@ -290,7 +290,7 @@ void DB<StaticConfig>::quiescence(uint16_t thread_id) { //协调线程静默
     // not strict).
     if (min_wts < min_rts) min_wts = min_rts;
 
-    if (min_wts_.get() < min_wts) min_wts_.write(min_wts);
+    if (min_wts_->get() < min_wts) min_wts_->write(min_wts);
 
     if (min_rts_.get() <= min_rts) {
       min_rts_.write(min_rts);
