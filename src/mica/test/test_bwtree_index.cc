@@ -322,8 +322,10 @@ bool test_bwtree_delete(DB& db) {
     RowAccessHandle rah(&tx_insert);
     rah.new_row(main_tbl, 0, 64);
     char data[] = "delete_test_data";
-    rah.write_row(0, [&](char* dest) {
+    rah.write_row(0, [&](uint16_t cf_id, RowVersion<BwTreeTestConfig>* rv, std::nullptr_t) -> bool {
+      char* dest = rv->data;
       memcpy(dest, data, strlen(data));
+      return true;
     });
     uint64_t row_id = rah.row_id();
 
@@ -336,9 +338,10 @@ bool test_bwtree_delete(DB& db) {
     tx_verify.begin();
 
     uint64_t found_before = 0;
-    auto lookup_before = idx->lookup(&tx_verify, key, false, [&](const uint64_t& key, uint64_t rid) {
+    auto lookup_before = idx->lookup(&tx_verify, key, false, [&](const uint64_t& key, uint64_t rid) -> bool {
         void(key);
         found_before++;
+        return true;
     });
 
     if (lookup_before != 1) {
@@ -364,9 +367,10 @@ bool test_bwtree_delete(DB& db) {
     tx_verify_after.begin();
 
     uint64_t found_after = 0;
-    auto lookup_after = idx->lookup(&tx_verify_after, key, false, [&](const uint64_t& key, uint64_t rid) {
+    auto lookup_after = idx->lookup(&tx_verify_after, key, false, [&](const uint64_t& key, uint64_t rid) -> bool {
         void(key);
         found_after++;
+        return true;
     });
 
     if (lookup_after != 0) {
@@ -388,8 +392,8 @@ BwTreeTestResults run_bwtree_tests() {
 
     // 初始化数据库
     ::mica::util::Config config;
-    ::mica::transaction::PagePool<BwTreeTestConfig>* page_pools[8];  
-    // 初始化page_pools...  
+    ::mica::transaction::PagePool<BwTreeTestConfig>* page_pools[8];
+    // 初始化page_pools...
     DB db(page_pools, nullptr, nullptr, 4);
 
     if (false) {

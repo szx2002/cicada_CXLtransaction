@@ -37,7 +37,7 @@ struct TestResults {
 bool test_slot_basic_functionality(DB& db) {
     printf("Testing slot basic functionality...\n");
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.activate(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
         return false;
@@ -96,7 +96,7 @@ bool test_slot_basic_functionality(DB& db) {
     }
 
     tx2.commit();
-    db.deactivate_thread(0);
+    db.deactivate(0);
     printf("Slot basic functionality test: PASSED\n");
     return true;
 }
@@ -125,7 +125,7 @@ bool test_cxl_memory_allocation(DB& db) {
         return false;
     }
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.activate(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
         return false;
@@ -153,7 +153,7 @@ bool test_cxl_memory_allocation(DB& db) {
         ctx->cxl_page_pool()->free(test_ptr);
     }
 
-    db.deactivate_thread(0);
+    db.deactivate(0);
     printf("CXL memory allocation test: PASSED\n");
     return true;
 }
@@ -169,7 +169,7 @@ bool test_concurrent_slot_operations(DB& db) {
 
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&db, &success_count, i, operations_per_thread]() {
-            auto ctx = db.activate_thread(i);
+            auto ctx = db.activate(i);
             if (ctx == nullptr) return;
 
             for (int j = 0; j < operations_per_thread; j++) {
@@ -191,7 +191,7 @@ bool test_concurrent_slot_operations(DB& db) {
                 }
             }
 
-            db.deactivate_thread(i);
+            db.deactivate(i);
         });
     }
 
@@ -209,7 +209,7 @@ bool test_concurrent_slot_operations(DB& db) {
 bool test_fallback_mode(DB& db) {
     printf("Testing fallback mode (no CXL)...\n");
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.activate(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
         return false;
@@ -241,7 +241,7 @@ bool test_fallback_mode(DB& db) {
         return false;
     }
 
-    db.deactivate_thread(0);
+    db.deactivate(0);
     printf("Fallback mode test: PASSED\n");
     return true;
 }
@@ -255,7 +255,7 @@ bool test_bwtree_cxl_integration(DB& db) {
         return true; // 跳过但不算失败
     }
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.context(0);
     if (ctx == nullptr) return false;
 
     // 创建CXL表和BwTree索引
@@ -283,10 +283,12 @@ bool test_bwtree_cxl_integration(DB& db) {
 
     for (int i = 0; i < 100; i++) {
         RowAccessHandle rah(&tx);
-        rah.new_row(cxl_tbl, 0, 64);
+        rah.new_row(cxl_tbl, 0, Transaction::kNewRowID, true, 64);
         char data[64];
         snprintf(data, sizeof(data), "bwtree_cxl_%d", i);
-        rah.write_row(data, sizeof(data));
+        rah.write_row(0, [&](char* dest) {
+          memcpy(dest, data, strlen(data));
+        });
 
         idx->insert(&tx, i + 5000, rah.row_id());
     }
@@ -319,7 +321,7 @@ bool test_bwtree_cxl_integration(DB& db) {
 
     tx_query.commit();
 
-    db.deactivate_thread(0);
+    db.deactivate(0);
     printf("BwTree CXL integration test: PASSED\n");
     return true;
 }
@@ -347,13 +349,15 @@ TestResults run_comprehensive_tests() {
     printf("\n");
 
     // 初始化数据库
-    ::mica::util::Config config;
-    DB db(config);
-
-    if (!db.init()) {
-        printf("Failed to initialize database\n");
-        return results;
-    }
+    ::mica::util::Config config = ::mica::util::Config::load_file("test_tx.json");  
+    Alloc alloc(config.get("alloc"));  
+    auto page_pool_size = 24 * uint64_t(1073741824);  
+    PagePool* page_pools[2];  
+    page_pools[0] = new PagePool(&alloc, page_pool_size / 2, 0);  
+    page_pools[1] = new PagePool(&alloc, page_pool_size / 2, 1);  
+  
+    Logger logger;  
+    DB db(page_pools, &logger, &sw, static_cast<uint16_t>(4));
 
     // 运行测试 - 更新为6个测试
     results.total_tests = 6;
