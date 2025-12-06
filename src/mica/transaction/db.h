@@ -341,7 +341,7 @@ class DB {
 
   void reset_backoff();
 
-  Timestamp min_wts() const { return min_wts_.get(); }
+  Timestamp min_wts() const { return min_rts_.get(); }
   Timestamp min_rts() const { return min_rts_.get(); }
 
   //新增：遍历所有活跃线程,返回最小的活跃事务时间戳

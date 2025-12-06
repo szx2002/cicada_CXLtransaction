@@ -2,9 +2,12 @@
 #include <random>
 #include <thread>
 #include <cassert>
+#include <numa.h>
+#include <sys/mman.h>
 #include "mica/transaction/db.h"
 #include "mica/util/rand.h"
 #include "mica/test/cxl_detector.h"
+#include "mica/transaction/row.h"
 
 struct CXLTestConfig : public ::mica::transaction::BasicDBConfig {
     typedef ::mica::transaction::NullLogger<CXLTestConfig> Logger;
@@ -125,7 +128,8 @@ bool test_cxl_memory_allocation(DB& db) {
         return false;
     }
 
-    auto ctx = db.activate(0);
+    db.activate(0);  
+    auto ctx = db.context(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
         return false;
@@ -169,7 +173,8 @@ bool test_concurrent_slot_operations(DB& db) {
 
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&db, &success_count, i, operations_per_thread]() {
-            auto ctx = db.activate(i);
+            db.activate(i);  
+            auto ctx = db.context(i);
             if (ctx == nullptr) return;
 
             for (int j = 0; j < operations_per_thread; j++) {
@@ -180,7 +185,7 @@ bool test_concurrent_slot_operations(DB& db) {
                 if (tbl == nullptr) continue;
 
                 RowAccessHandle rah(&tx);
-                if (rah.new_row(tbl, 0, 64)) {
+                if (rah.new_row(tbl, 0, Transaction::kNewRowID, true, 64)) {
                     char data[64];
                     snprintf(data, sizeof(data), "thread_%d_op_%d", i, j);
                     rah.write_row(data, strlen(data));
@@ -209,7 +214,8 @@ bool test_concurrent_slot_operations(DB& db) {
 bool test_fallback_mode(DB& db) {
     printf("Testing fallback mode (no CXL)...\n");
 
-    auto ctx = db.activate(0);
+    db.activate(0);
+    auto ctx = db.context(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
         return false;
@@ -228,13 +234,19 @@ bool test_fallback_mode(DB& db) {
     }
 
     RowAccessHandle rah(&tx);
-    if (!rah.new_row(tbl, 0, 64)) {
+    if (!rah.new_row(tbl, 0, Transaction::kNewRowID, true, 64)) {
         printf("Failed to create row in fallback mode\n");
         return false;
     }
 
     char data[] = "fallback_test";
-    rah.write_row(data, sizeof(data));
+    rah.write_row(0, [&](uint16_t cf_id, RowVersion<CXLTestConfig>* write_rv, RowVersion<CXLTestConfig>* read_rv) -> bool {
+      (void)cf_id;
+      (void)read_rv;
+      char* dest = write_rv->data;
+      memcpy(dest, data, strlen(data));
+      return true;
+    });
 
     if (!tx.commit()) {
         printf("Failed to commit in fallback mode\n");
@@ -256,6 +268,7 @@ bool test_bwtree_cxl_integration(DB& db) {
     }
 
     auto ctx = db.context(0);
+    db.activate(0);
     if (ctx == nullptr) return false;
 
     // 创建CXL表和BwTree索引
@@ -286,8 +299,10 @@ bool test_bwtree_cxl_integration(DB& db) {
         rah.new_row(cxl_tbl, 0, Transaction::kNewRowID, true, 64);
         char data[64];
         snprintf(data, sizeof(data), "bwtree_cxl_%d", i);
-        rah.write_row(0, [&](char* dest) {
+        rah.write_row(0, [&](uint16_t cf_id, RowVersion<CXLTestConfig>* write_rv, RowVersion<CXLTestConfig>* read_rv) -> bool {
+          char* dest = write_rv->data;
           memcpy(dest, data, strlen(data));
+          return true;
         });
 
         idx->insert(&tx, i + 5000, rah.row_id());
@@ -349,14 +364,18 @@ TestResults run_comprehensive_tests() {
     printf("\n");
 
     // 初始化数据库
-    ::mica::util::Config config = ::mica::util::Config::load_file("test_tx.json");  
-    Alloc alloc(config.get("alloc"));  
-    auto page_pool_size = 24 * uint64_t(1073741824);  
-    PagePool* page_pools[2];  
-    page_pools[0] = new PagePool(&alloc, page_pool_size / 2, 0);  
-    page_pools[1] = new PagePool(&alloc, page_pool_size / 2, 1);  
-  
-    Logger logger;  
+    ::mica::util::Config config = ::mica::util::Config::load_file("test_tx.json");
+    Alloc alloc(config.get("alloc"));
+    auto page_pool_size = 24 * uint64_t(1073741824);
+    ::mica::transaction::PagePool<CXLTestConfig>* page_pools[2];
+    page_pools[0] = new ::mica::transaction::PagePool<CXLTestConfig>(&alloc, page_pool_size / 2, 0);
+    page_pools[1] = new ::mica::transaction::PagePool<CXLTestConfig>(&alloc, page_pool_size / 2, 1);
+
+    ::mica::util::Stopwatch sw;
+    sw.init_start();
+    sw.init_end();
+
+    Logger logger;
     DB db(page_pools, &logger, &sw, static_cast<uint16_t>(4));
 
     // 运行测试 - 更新为6个测试

@@ -6,6 +6,7 @@
 #include "mica/transaction/db.h"
 #include "mica/util/rand.h"
 #include "mica/test/cxl_detector.h"
+#include "mica/transaction/row.h"
 
 struct BwTreeTestConfig : public ::mica::transaction::BasicDBConfig {
     typedef ::mica::transaction::NullLogger<BwTreeTestConfig> Logger;
@@ -89,7 +90,7 @@ bool test_bwtree_basic_insert(DB& db) {
     // 插入索引数据（使用commit_slot机制）
     uint64_t key = 1001;
     auto insert_result = idx->insert(&tx, key, row_id);
-    if (insert_result != static_cast<uint64_t>(::mica::transaction::Result::kSuccess)) {
+    if (insert_result != 0) {
         printf("Failed to insert into BwTree index\n");
         return false;
     }
@@ -105,8 +106,10 @@ bool test_bwtree_basic_insert(DB& db) {
     tx2.begin();
 
     uint64_t found_row_id = 0;
-    auto lookup_result = idx->lookup(&tx2, key, false, [&](uint64_t rid) {
+    auto lookup_result = idx->lookup(&tx2, key, false, [&](const uint64_t& key, uint64_t rid) -> bool {
+        (void)key;
         found_row_id = rid;
+        return true;
     });
 
     if (lookup_result != 1 || found_row_id != row_id) {
@@ -139,7 +142,7 @@ bool test_bwtree_visibility(DB& db) {
     tx1.begin();
 
     RowAccessHandle rah1(&tx1);
-    rah1.new_row(main_tbl, 0, 64);
+    rah1.new_row(main_tbl, 0, Transaction::kNewRowID, true, 64);
     char data1[] = "uncommitted_data";
     rah1.write_row(data1, sizeof(data1));
     uint64_t row_id1 = rah1.row_id();
@@ -152,8 +155,10 @@ bool test_bwtree_visibility(DB& db) {
     tx2.begin();
 
     uint64_t found_count = 0;
-    auto lookup_result = idx->lookup(&tx2, key1, false, [&](uint64_t rid) {
+    auto lookup_result = idx->lookup(&tx2, key1, false, [&](const uint64_t& key, uint64_t rid) -> bool {
+        (void)key;
         found_count++;
+        return true;
     });
 
     if (lookup_result != 0 || found_count != 0) {
@@ -171,8 +176,10 @@ bool test_bwtree_visibility(DB& db) {
     tx3.begin();
 
     uint64_t found_row_id = 0;
-    lookup_result = idx->lookup(&tx3, key1, false, [&](uint64_t rid) {
+    lookup_result = idx->lookup(&tx3, key1, false, [&](const uint64_t& key, uint64_t rid) -> bool {
+        (void)key;
         found_row_id = rid;
+        return true;
     });
 
     if (lookup_result != 1 || found_row_id != row_id1) {
@@ -225,7 +232,7 @@ bool test_bwtree_concurrent_operations(DB& db) {
                 uint64_t key = i * 1000 + j;
                 auto insert_result = idx->insert(&tx, key, row_id);
 
-                if (insert_result == static_cast<uint64_t>(::mica::transaction::Result::kSuccess)) {
+                if (insert_result == 1) {
                     if (tx.commit()) {
                         success_count++;
                     }
@@ -267,7 +274,7 @@ bool test_bwtree_range_query(DB& db) {
         tx.begin();
 
         RowAccessHandle rah(&tx);
-        rah.new_row(main_tbl, 0, 64);
+        rah.new_row(main_tbl, 0, Transaction::kNewRowID, true, 64);
         char data[64];
         snprintf(data, sizeof(data), "range_test_%lu", key);
         rah.write_row(data, strlen(data));
@@ -284,8 +291,10 @@ bool test_bwtree_range_query(DB& db) {
     std::vector<std::pair<uint64_t, uint64_t>> results;
     auto range_result = idx->lookup<::mica::transaction::BTreeRangeType::kInclusive,
                                    ::mica::transaction::BTreeRangeType::kInclusive, false>(
-        &tx_query, 3001, 3003, false, [&](uint64_t key, uint64_t row_id) {
+        &tx_query, 3001, 3003, false, [&](const uint64_t& key, uint64_t rid) -> bool {
+            (void)key;
             results.emplace_back(key, row_id);
+            return true;
         });
 
     if (range_result != 3) {
@@ -322,10 +331,12 @@ bool test_bwtree_delete(DB& db) {
     RowAccessHandle rah(&tx_insert);
     rah.new_row(main_tbl, 0, 64);
     char data[] = "delete_test_data";
-    rah.write_row(0, [&](uint16_t cf_id, RowVersion<BwTreeTestConfig>* rv, std::nullptr_t) -> bool {
-      char* dest = rv->data;
-      memcpy(dest, data, strlen(data));
-      return true;
+    rah.write_row(0, [&](uint16_t cf_id, RowVersion<CXLTestConfig>* write_rv, RowVersion<CXLTestConfig>* read_rv) -> bool {  
+      (void)cf_id;  
+      (void)read_rv;  
+      char* dest = write_rv->data;  
+      memcpy(dest, data, strlen(data));  
+      return true;  
     });
     uint64_t row_id = rah.row_id();
 
@@ -339,7 +350,7 @@ bool test_bwtree_delete(DB& db) {
 
     uint64_t found_before = 0;
     auto lookup_before = idx->lookup(&tx_verify, key, false, [&](const uint64_t& key, uint64_t rid) -> bool {
-        void(key);
+        (void)key;
         found_before++;
         return true;
     });
@@ -368,7 +379,7 @@ bool test_bwtree_delete(DB& db) {
 
     uint64_t found_after = 0;
     auto lookup_after = idx->lookup(&tx_verify_after, key, false, [&](const uint64_t& key, uint64_t rid) -> bool {
-        void(key);
+        (void)key;
         found_after++;
         return true;
     });
