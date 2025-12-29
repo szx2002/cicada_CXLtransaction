@@ -366,13 +366,13 @@ class DB {
     char* p = cxl_pool->allocate();
 
     min_wts_ = reinterpret_cast<ConcurrentTimestamp*>(p);
-    min_rts_ = reinterpret_cast<ConcurrentTimestamp*>(p + sizeof(ConcurrentTimestamp));
-    ref_clock_ = reinterpret_cast<volatile uint64_t*>(p + 2 * sizeof(ConcurrentTimestamp));
+    min_rts_ = *reinterpret_cast<ConcurrentTimestamp*>(p + sizeof(ConcurrentTimestamp));
+    ref_clock_ = *reinterpret_cast<volatile uint64_t*>(p + 2 * sizeof(ConcurrentTimestamp));
 
     // 初始化
     min_wts_->init(ctxs_[0]->generate_timestamp());
-    min_rts_->init(min_wts_->get());
-    *ref_clock_ = 0;
+    min_rts_.init(min_wts_->get());
+    ref_clock_ = 0;
   }
   //新增结束
 

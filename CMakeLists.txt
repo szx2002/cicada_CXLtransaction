@@ -121,8 +121,17 @@ IF(LTO)
   ADD_EXECUTABLE(test_bwtree_index src/mica/test/test_bwtree_index.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_bwtree_index ${LIBRARIES})
 
-  ADD_EXECUTABLE(test_cxl_detection src/mica/test/test_cxl_detection.cc ${SOURCES})  
+  ADD_EXECUTABLE(test_cxl_detection src/mica/test/test_cxl_detection.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_detection ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_cxl_row_data src/mica/test/test_cxl_row_data.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_cxl_row_data ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_commit_slot_access src/mica/test/test_commit_slot_access.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_commit_slot_access ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_simple_slot_read src/mica/test/test_simple_slot_read.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_simple_slot_read ${LIBRARIES})
   #// === 添加结束 ===
 
 ELSE(LTO)
@@ -151,8 +160,17 @@ ELSE(LTO)
   ADD_EXECUTABLE(test_bwtree_index src/mica/test/test_bwtree_index.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_bwtree_index ${LIBRARIES})
 
-  ADD_EXECUTABLE(test_cxl_detection src/mica/test/test_cxl_detection.cc ${SOURCES})  
+  ADD_EXECUTABLE(test_cxl_detection src/mica/test/test_cxl_detection.cc ${SOURCES})
   TARGET_LINK_LIBRARIES(test_cxl_detection ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_cxl_row_data src/mica/test/test_cxl_row_data.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_cxl_row_data ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_commit_slot_access src/mica/test/test_commit_slot_access.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_commit_slot_access ${LIBRARIES})
+
+  ADD_EXECUTABLE(test_simple_slot_read src/mica/test/test_simple_slot_read.cc ${SOURCES})
+  TARGET_LINK_LIBRARIES(test_simple_slot_read ${LIBRARIES})
   #// === 添加结束 ===
 
 ENDIF(LTO)

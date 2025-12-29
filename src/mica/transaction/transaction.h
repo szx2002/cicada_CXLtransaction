@@ -104,6 +104,8 @@ class Transaction {
   uint16_t iset_size() const { return iset_size_; }
   uint16_t rset_size() const { return rset_size_; }
   uint16_t wset_size() const { return wset_size_; }
+  uint32_t current_slot_index() const { return current_slot_idx_; }  //新增
+  uint64_t current_local_tx_seq() const { return current_local_seq_; }  //新增
   const uint16_t* iset_idx() const { return iset_idx_; }
   const uint16_t* rset_idx() const { return rset_idx_; }
   const uint16_t* wset_idx() const { return wset_idx_; }

@@ -22,6 +22,8 @@ DB<StaticConfig>::DB(PagePool<StaticConfig>** page_pools, Logger* logger,
         static_cast<uint8_t>(::mica::util::lcore.numa_id(thread_id));
     if (num_numa_ <= numa_id) num_numa_ = static_cast<uint8_t>(numa_id + 1);
 
+    num_numa_ = static_cast<uint8_t>(::mica::util::lcore.numa_count()); //直接使用系统numa数量
+
     ctxs_[thread_id] = new Context<StaticConfig>(this, thread_id, numa_id);
 
     thread_active_[thread_id] = false;
@@ -51,9 +53,67 @@ DB<StaticConfig>::DB(PagePool<StaticConfig>** page_pools, Logger* logger,
   active_thread_count_ = 0;
   leader_thread_id_ = static_cast<uint16_t>(-1);
 
-  min_wts_->init(ctxs_[0]->generate_timestamp());
-  min_rts_.init(min_wts_.get());
+  // 在CXL内存中分配min_wts_ - 添加详细调试
+  printf("DEBUG: Starting CXL memory allocation for min_wts_\n");
+  auto cxl_page_pool = page_pools_[1];  // NUMA节点1作为CXL内存
+  if (cxl_page_pool == nullptr) {
+    printf("ERROR: CXL page pool is null\n");
+    return;
+  }
+
+  char* min_wts_memory = cxl_page_pool->allocate();
+  if (min_wts_memory == nullptr) {
+    printf("ERROR: Failed to allocate min_wts_ in CXL memory\n");
+    return;
+  }
+
+  printf("DEBUG: Allocated CXL memory at %p\n", min_wts_memory);
+
+  // 检查内存对齐
+  uintptr_t addr = reinterpret_cast<uintptr_t>(min_wts_memory);
+  printf("DEBUG: Memory address alignment check: %p (low 6 bits: 0x%02x)\n",
+       (void*)addr, (addr & 63));
+
+  if (addr & 63) {
+    printf("WARNING: CXL memory not 64-byte aligned, attempting reallocation\n");
+    char* aligned_memory = cxl_page_pool->allocate();
+    if (aligned_memory == nullptr) {
+        printf("ERROR: Failed to allocate aligned CXL memory\n");
+        return;
+    }
+    if ((reinterpret_cast<uintptr_t>(aligned_memory) & 63) == 0) {
+        min_wts_memory = aligned_memory;
+        printf("DEBUG: Using aligned CXL memory at %p\n", min_wts_memory);
+    } else {
+        printf("ERROR: Cannot get 64-byte aligned CXL memory\n");
+        return;
+    }
+  }
+
+  min_wts_ = reinterpret_cast<ConcurrentTimestamp*>(min_wts_memory);
+  printf("DEBUG: min_wts_ pointer set to %p\n", min_wts_);
+
+  // 获取初始时间戳
+  auto initial_ts = ctxs_[0]->generate_timestamp();
+  printf("DEBUG: Generated initial timestamp: t2=%lu\n", initial_ts.t2);
+
+  // 使用栈临时对象初始化，然后复制到CXL内存
+  CompactConcurrentTimestamp temp_min_wts;
+  printf("DEBUG: Initializing temporary timestamp object\n");
+  temp_min_wts.init(initial_ts);
+  printf("DEBUG: Temporary timestamp initialized successfully\n");
+
+  printf("DEBUG: Copying to CXL memory at %p\n", min_wts_);
+  *min_wts_ = temp_min_wts;
+  printf("DEBUG: CXL timestamp copy completed\n");
+
+  min_rts_.init(min_wts_->get());
   ref_clock_ = 0;
+  /*
+  min_wts_->init(ctxs_[0]->generate_timestamp());
+  min_rts_.init(min_wts_->get());
+  ref_clock_ = 0;
+  */
   allocate_cxl_metadata();  // 修改：初始化CXL全局元数据
   // gc_epoch_ = 0;
 }
@@ -155,7 +215,7 @@ bool DB<StaticConfig>::create_btree_index_nonunique_u64(
 
 template <class StaticConfig>
 void DB<StaticConfig>::activate(uint16_t thread_id) {
-  // printf("DB::activate(): thread_id=%hu\n", thread_id);
+  //printf("DB::activate(): thread_id=%u\n", thread_id);
   if (thread_active_[thread_id]) return;
 
   if (!clock_init_[thread_id]) {
@@ -177,6 +237,7 @@ void DB<StaticConfig>::activate(uint16_t thread_id) {
   ::mica::util::memory_barrier();
 
   // Keep updating timestamp until it is reflected to min_wts and min_rts.
+  //printf("Starting sync loop for thread %u\n", thread_id);
   while (/*gc_epoch_ - init_gc_epoch < 2 ||*/ min_wts() >
              ctxs_[thread_id]->wts() ||
          min_rts() > ctxs_[thread_id]->rts()) {
@@ -191,6 +252,7 @@ void DB<StaticConfig>::activate(uint16_t thread_id) {
   }
 
   __sync_fetch_and_add(&active_thread_count_, 1);
+  //printf("Sync completed for thread %u\n", thread_id);
 }
 
 template <class StaticConfig>

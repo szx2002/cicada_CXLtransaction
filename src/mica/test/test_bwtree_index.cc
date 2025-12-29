@@ -39,7 +39,7 @@ struct BwTreeTestResults {
 bool test_bwtree_basic_insert(DB& db) {
     printf("Testing BwTree basic insert...\n");
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.context(0);
     if (ctx == nullptr) {
         printf("Failed to activate thread\n");
         return false;
@@ -118,7 +118,7 @@ bool test_bwtree_basic_insert(DB& db) {
     }
 
     tx2.commit();
-    db.deactivate_thread(0);
+    db.deactivate(0);
     printf("BwTree basic insert test: PASSED\n");
     return true;
 }
@@ -127,8 +127,8 @@ bool test_bwtree_basic_insert(DB& db) {
 bool test_bwtree_visibility(DB& db) {
     printf("Testing BwTree transaction visibility...\n");
 
-    auto ctx1 = db.activate_thread(0);
-    auto ctx2 = db.activate_thread(1);
+    auto ctx1 = db.activate(0);
+    auto ctx2 = db.activate(1);
     if (!ctx1 || !ctx2) {
         printf("Failed to activate threads\n");
         return false;
@@ -189,8 +189,8 @@ bool test_bwtree_visibility(DB& db) {
 
     tx3.commit();
 
-    db.deactivate_thread(0);
-    db.deactivate_thread(1);
+    db.deactivate(0);
+    db.deactivate(1);
     printf("BwTree visibility test: PASSED\n");
     return true;
 }
@@ -209,7 +209,7 @@ bool test_bwtree_concurrent_operations(DB& db) {
 
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back([&db, &success_count, i, operations_per_thread, main_tbl, idx]() {
-            auto ctx = db.activate_thread(i);
+            auto ctx = db.activate(i);
             if (ctx == nullptr) return;
 
             for (int j = 0; j < operations_per_thread; j++) {
@@ -241,7 +241,7 @@ bool test_bwtree_concurrent_operations(DB& db) {
                 }
             }
 
-            db.deactivate_thread(i);
+            db.deactivate(i);
         });
     }
 
@@ -259,7 +259,7 @@ bool test_bwtree_concurrent_operations(DB& db) {
 bool test_bwtree_range_query(DB& db) {
     printf("Testing BwTree range query...\n");
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.context(0);
     if (!ctx) return false;
 
     auto main_tbl = db.get_table("bwtree_main_tbl");
@@ -309,7 +309,7 @@ bool test_bwtree_range_query(DB& db) {
     }
 
     tx_query.commit();
-    db.deactivate_thread(0);
+    db.deactivate(0);
     printf("BwTree range query test: PASSED\n");
     return true;
 }
@@ -318,7 +318,7 @@ bool test_bwtree_range_query(DB& db) {
 bool test_bwtree_delete(DB& db) {
     printf("Testing BwTree delete operations...\n");
 
-    auto ctx = db.activate_thread(0);
+    auto ctx = db.context(0);
     if (!ctx) return false;
 
     auto main_tbl = db.get_table("bwtree_main_tbl");

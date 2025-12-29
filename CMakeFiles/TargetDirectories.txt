@@ -1,0 +1,14 @@
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/common.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_tx.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_tx_index.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_partial_commit.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_cxl_detection.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_cxl_slot.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_tsc_sync.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_bwtree_index.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_atomics.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_cxl_row_data.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_simple_slot_read.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/test_commit_slot_access.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/rebuild_cache.dir
+/home/austin/cxl_transaction/cicada_CXLtransaction/CMakeFiles/edit_cache.dir
